@@ -1,0 +1,7 @@
+.build/
+dist/
+.swiftpm/
+.DS_Store
+xcuserdata/
+.memory/
+.scrub-private

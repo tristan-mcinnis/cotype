@@ -1,0 +1,262 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the update to the channel? (false = build + dry-run plan only)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  # Split by event so an approved release (workflow_dispatch) is NEVER cancelled
+  # or shared with a push / PR run on the same ref. Continuous-integration runs
+  # (push / PR) may cancel a previous run for the same ref; a release run uses its
+  # own group with cancel-in-progress:false, so a new dispatch or push queued on
+  # the same ref waits rather than interrupting an approved publish.
+  group: ${{ github.event_name == 'workflow_dispatch' && format('release-{0}', github.ref) || format('ci-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Deterministic gate. Never needs a model. Debug + release build, unit tests,
+  # app-bundle construction and validation. Runs on every push / PR.
+  # -------------------------------------------------------------------------
+  build-test:
+    name: Build, test, and bundle validation
+    # arm64 Apple-Silicon hosted runner. macos-14 hosted images are deprecated and
+    # will be removed; macos-15 (arm64) is current. Deployment target stays macOS 14.
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcode-select -p
+          swift --version
+
+      - name: Debug build
+        run: swift build -c debug
+
+      - name: Release build
+        run: swift build -c release
+
+      - name: Deterministic tests
+        run: swift test
+
+      - name: App bundle construction (ad-hoc signed + version stamping)
+        env:
+          COTYPE_CI: "1"
+        run: ./scripts/build-app.sh
+
+      - name: App bundle validation
+        run: ./scripts/verify-bundle.sh dist/Cotype.app
+
+      - name: verify (deterministic, model lane explicitly skipped)
+        env:
+          COTYPE_CI: "1"
+        run: ./scripts/verify.sh --skip-model --no-app
+
+      - name: Release-helper self-tests (semver/build monotonicity, arm64, manifest)
+        env:
+          COTYPE_CI: "1"
+        run: |
+          ./scripts/verify.sh --self-test
+          ./scripts/update-manifest.sh --self-test
+
+      - name: Diagnostics smoke (no model needed)
+        env:
+          COTYPE_CI: "1"
+        run: ./scripts/diagnostics.sh --no-hash || true
+
+      - name: Upload build artifact (optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cotype.app
+          path: dist/Cotype.app
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------
+  # Model-eval lane. OPT-IN and model-equipped. Runs only when explicitly
+  # triggered (workflow_dispatch) on a self-hosted runner that has the pinned
+  # GGUF cached. If the model is absent, verify.sh --model-lane FAILS rather
+  # than silently passing — this is the "required model vs explicit skip"
+  # distinction. The deterministic gate above never needs a model. The lane runs
+  # the FULL seeded eval suite (verify.sh defaults COTYPE_EVAL_CASES=0), never a
+  # 3-case smoke.
+  # -------------------------------------------------------------------------
+  model-eval:
+    name: Model evaluation lane (requires model)
+    if: github.event_name == 'workflow_dispatch'
+    # Use a runner that has cached `~/models/gemma-4-E2B-it-Q4_K_M.gguf`.
+    runs-on: [self-hosted, macOS, arm64, model-equipped]
+    timeout-minutes: 90
+    env:
+      COTYPE_MODEL_EVAL: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preflight model presence
+        run: |
+          model="$HOME/models/gemma-4-E2B-it-Q4_K_M.gguf"
+          if [[ ! -f "$model" ]]; then
+            echo "::error::Required model not present at $model. The model-eval lane requires the model and will not silently skip."
+            exit 1
+          fi
+          shasum -a 256 "$model"
+
+      - name: Build
+        run: swift build -c release
+
+      - name: Run model evaluation lane (requires model)
+        env:
+          COTYPE_MODEL_EVAL: "1"
+        run: ./scripts/verify.sh --model-lane --no-app --release-only
+
+  # -------------------------------------------------------------------------
+  # Release packaging (opt-in). Only for a notarized, Developer ID-signed build.
+  # This is the documented opt-in release path; see docs/RELEASE.md.
+  # -------------------------------------------------------------------------
+  release-package:
+    name: Release artifact (opt-in, notarized)
+    if: github.event_name == 'workflow_dispatch'
+    # arm64 Apple-Silicon hosted runner (macos-14 hosted images are deprecated).
+    runs-on: macos-15
+    timeout-minutes: 30
+    needs: model-eval
+    # A release/publish run must never be cancelled mid-publish (a partially
+    # published channel is worse than none). Use a dedicated concurrency group
+    # with cancel-in-progress:false so a new dispatch waits instead of cancelling.
+    concurrency:
+      group: release-publish-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      # Explicit, monotonic CI build number applied to EVERY step (build, packaging,
+      # appcast, manifest) so bundle, manifest, and appcast versions stay in sync
+      # and version/build monotonicity is actually enforced across releases.
+      COTYPE_BUILD_NUMBER: ${{ github.run_number }}
+      COTYPE_CHANNEL_URL: ${{ secrets.COTYPE_UPDATE_FEED_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.COTYPE_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.COTYPE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.COTYPE_KEYCHAIN_PASSWORD }}
+        run: |
+          [[ -n "$CERTIFICATE_P12_BASE64" && -n "$CERTIFICATE_PASSWORD" && -n "$KEYCHAIN_PASSWORD" ]] || {
+            echo "::error::Developer ID certificate secrets are required"; exit 1;
+          }
+          KEYCHAIN="$RUNNER_TEMP/cotype-signing.keychain-db"
+          CERT="$RUNNER_TEMP/cotype-signing.p12"
+          printf '%s' "$CERTIFICATE_P12_BASE64" | base64 --decode > "$CERT"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERT" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+      - name: Fetch previous published update-manifest (monotonicity contract)
+        env:
+          COTYPE_RELEASE_REPO: "${{ github.repository }}"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PREV="$RUNNER_TEMP/previous-update-manifest.json"
+          if curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${COTYPE_RELEASE_REPO}/releases/latest" \
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); print("".join(a["browser_download_url"] for a in d.get("assets",[]) if "update-manifest" in a["name"]))' \
+            | grep -q .; then
+            URL="$(curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/${COTYPE_RELEASE_REPO}/releases/latest" \
+              | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next((a["browser_download_url"] for a in d.get("assets",[]) if "update-manifest" in a["name"]), ""))')"
+            echo "Fetching previous manifest from $URL"
+            curl -fsSL -o "$PREV" "$URL"
+            echo "COTYPE_PREVIOUS_MANIFEST=$PREV" >> "$GITHUB_ENV"
+          else
+            echo "No previous release/manifest found; monotonicity will not be checked this run."
+          fi
+
+      - name: Materialize update-signing key (base64 TEXT, never decoded)
+        env:
+          COTYPE_UPDATE_SIGNING_KEY: ${{ secrets.COTYPE_UPDATE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "$COTYPE_UPDATE_SIGNING_KEY" ]] || { echo "::error::COTYPE_UPDATE_SIGNING_KEY is required"; exit 1; }
+          KEYFILE="$RUNNER_TEMP/cotype-update-signing.key"
+          # The secret is the 44-char base64 EdDSA private key TEXT. Both cotype-update
+          # (reads a String) and Sparkle's --ed-key-file expect the file to CONTAIN the
+          # base64 string, so write it verbatim — never `base64 --decode`.
+          printf '%s' "$COTYPE_UPDATE_SIGNING_KEY" > "$KEYFILE"
+          chmod 600 "$KEYFILE"
+          echo "COTYPE_UPDATE_SIGNING_KEY_FILE=$KEYFILE" >> "$GITHUB_ENV"
+
+      - name: Build for release (Developer ID + Hardened Runtime, arm64, release candidate)
+        env:
+          COTYPE_BUILD_MODE: "release"
+          COTYPE_NOTARIZED: "1"
+          COTYPE_SIGN_IDENTITY: ${{ secrets.COTYPE_SIGN_IDENTITY }}
+          COTYPE_UPDATE_FEED_URL: ${{ secrets.COTYPE_UPDATE_FEED_URL }}
+          COTYPE_UPDATE_PUBLIC_KEY: ${{ secrets.COTYPE_UPDATE_PUBLIC_KEY }}
+        run: ./scripts/build-app.sh --notarize
+
+      - name: Notarize and staple
+        env:
+          COTYPE_DEVELOPER_ID_APP: ${{ secrets.COTYPE_DEVELOPER_ID_APP }}
+          NOTARTOOL_APPLE_ID: ${{ secrets.NOTARTOOL_APPLE_ID }}
+          NOTARTOOL_TEAM_ID: ${{ secrets.NOTARTOOL_TEAM_ID }}
+          NOTARTOOL_PASSWORD: ${{ secrets.NOTARTOOL_PASSWORD }}
+        run: ./scripts/notarize.sh
+
+      - name: Package versioned artifact + signed update manifest
+        run: |
+          set -euo pipefail
+          PKG_ARGS=(--require-signature --channel-url "$COTYPE_CHANNEL_URL")
+          [[ -n "$COTYPE_UPDATE_SIGNING_KEY_FILE" ]] && PKG_ARGS+=(--sign-with "$COTYPE_UPDATE_SIGNING_KEY_FILE")
+          ./scripts/package-release.sh "${PKG_ARGS[@]}"
+
+      - name: Generate Sparkle appcast (signed, single canonical archive)
+        run: |
+          ./scripts/generate-appcast.sh \
+            --release-dir dist/release \
+            --private-key "$COTYPE_UPDATE_SIGNING_KEY_FILE" \
+            --channel-url "$COTYPE_CHANNEL_URL"
+
+      - name: Publish update channel (only on explicit workflow input)
+        env:
+          COTYPE_PUBLISH_COMMAND: ${{ secrets.COTYPE_PUBLISH_COMMAND }}
+        run: |
+          if [[ "${{ github.event.inputs.publish }}" == "true" ]]; then
+            [[ -n "$COTYPE_PUBLISH_COMMAND" ]] || { echo "::error::publish=true requires COTYPE_PUBLISH_COMMAND"; exit 1; }
+            echo "Explicit publish requested; publishing update channel…"
+            ./scripts/publish-update.sh --publish --command "$COTYPE_PUBLISH_COMMAND" \
+              --channel-url "$COTYPE_CHANNEL_URL" dist/release
+          else
+            echo "publish NOT set — producing a ready-to-publish artifact + dry-run plan only (channel NOT live)."
+            ./scripts/publish-update.sh --dry-run --channel-url "$COTYPE_CHANNEL_URL" dist/release
+          fi
+
+      - name: Clean up signing materials (always)
+        if: always()
+        env:
+          KEYCHAIN_PASSWORD: ${{ secrets.COTYPE_KEYCHAIN_PASSWORD }}
+        run: |
+          # Remove key material FIRST, then tear down the keychain. There is no
+          # point unlocking a keychain we are about to delete; do not unlock after
+          # deletion (misleading). Everything is best-effort under if: always().
+          rm -f "$RUNNER_TEMP/cotype-update-signing.key" "$RUNNER_TEMP/cotype-signing.p12"
+          security delete-keychain "$RUNNER_TEMP/cotype-signing.keychain-db" 2>/dev/null || true
+          echo "Cleaned up update-signing key, p12, and signing keychain."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cotype-release
+          path: |
+            dist/release/
+          if-no-files-found: error

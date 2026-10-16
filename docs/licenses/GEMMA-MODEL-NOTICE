@@ -1,0 +1,27 @@
+Gemma 4 Model — Model Notice
+============================
+
+Cotype ships no model weights. It downloads / uses a single user-provided
+Gemma GGUF at runtime:
+
+  File        : gemma-4-E2B-it-Q4_K_M.gguf
+  SHA-256     : 740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8 (as of the pinned build)
+  License     : Apache-2.0
+
+The model is provided by Google under the **Apache-2.0** license. It is NOT
+licensed by this repository (Cotype grants no license to it); the model's own
+license and attribution apply.
+
+  Apache-2.0 license:  <https://www.apache.org/licenses/LICENSE-2.0>
+  Gemma 4 license:     <https://ai.google.dev/gemma/docs/gemma_4_license>
+  Model / authors:     Google DeepMind — <https://deepmind.google/models/gemma/>
+
+Under Apache-2.0, if you redistribute the model (or a derivative) you must
+retain the applicable copyright, patent, trademark, and attribution notices and
+include a copy of the license. Cotype downloads the model at runtime and does
+not bundle the weights; if you do bundle or re-distribute a Gemma 4 GGUF, carry
+these notices alongside it.
+
+Before distributing Cotype with a bundled or pre-fetched model, confirm that
+your redistribution of the model complies with the Apache-2.0 license and any
+supplier-specific restrictions. This notice is a pointer, not legal advice.
