@@ -26,7 +26,26 @@ final class ModelMigrationTests: XCTestCase {
 
     override func tearDownWithError() throws {
         if let directory { try? FileManager.default.removeItem(at: directory) }
-        if let suite { defaults.removePersistentDomain(forName: suite) }
+        if let suite {
+            DefaultsSuiteCleanup.remove(suite: suite)
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: DefaultsSuiteCleanup.plistURL(forSuite: suite).path),
+                "the test suite's preferences plist must not outlive the test"
+            )
+        }
+    }
+
+    func testSuiteCleanupRemovesThePreferencesPlist() throws {
+        let name = "cotype-migration-cleanup-\(UUID().uuidString)"
+        let probe = try XCTUnwrap(UserDefaults(suiteName: name))
+        probe.set("x", forKey: "k")
+        probe.synchronize()
+        let plist = DefaultsSuiteCleanup.plistURL(forSuite: name).path
+        XCTAssertTrue(FileManager.default.fileExists(atPath: plist), "precondition: the suite writes a plist")
+
+        DefaultsSuiteCleanup.remove(suite: name)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: plist))
     }
 
     private var legacyURL: URL {

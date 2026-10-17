@@ -243,8 +243,19 @@ final class GhostContentView: NSView {
 
     override var isFlipped: Bool { true }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
+        if let context = NSGraphicsContext.current {
+            context.saveGraphicsState()
+            context.compositingOperation = .copy
+            NSColor.clear.setFill()
+            dirtyRect.fill()
+            context.restoreGraphicsState()
+        }
         let attrs: [NSAttributedString.Key: Any] = [
             .font: metrics.font,
             .foregroundColor: House.NSColorToken.textPrimary

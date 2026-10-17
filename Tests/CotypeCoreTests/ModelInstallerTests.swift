@@ -104,7 +104,7 @@ final class ModelInstallerTests: XCTestCase {
         session.invalidateAndCancel()
         InstallerStubURLProtocol.lock.withLock { InstallerStubURLProtocol.handler = nil }
         if let directory { try? FileManager.default.removeItem(at: directory) }
-        if let defaultsSuite { defaults.removePersistentDomain(forName: defaultsSuite) }
+        if let defaultsSuite { DefaultsSuiteCleanup.remove(suite: defaultsSuite) }
     }
 
     // MARK: Helpers
