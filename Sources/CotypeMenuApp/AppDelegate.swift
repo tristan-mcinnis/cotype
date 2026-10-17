@@ -35,7 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         completionController = CompletionController(
             engineManager: engineManager,
             personalization: personalization,
-            overrides: overrides
+            overrides: overrides,
+            notShown: .shared
         )
     }
 
@@ -97,6 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// written even when content logging is off).
     func applicationWillTerminate(_ notification: Notification) {
         personalization.flush()
+        NotShownStore.shared.flush()
     }
 
     // MARK: - Setup

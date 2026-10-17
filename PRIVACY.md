@@ -107,6 +107,13 @@ kept — even when content logging is off — so the usage summary reflects real
 usage without persisting any sensitive content. Counters are bounded (a fixed
 number of distinct apps is tracked) and versioned.
 
+### Not-shown reasons — `not-shown.json`
+
+Content-free counts of why a requested completion never appeared (for example
+no caret position from the app, or an app turned off), per app bundle
+identifier, with the time each reason was last seen. No prefix, completion
+text, or window title is stored. "Delete All Data" clears it.
+
 ### Privacy config — `privacy-config.json`
 
 Retention choice and your excluded-app list. This is not content; it survives
@@ -117,7 +124,7 @@ Retention choice and your excluded-app list. This is not content; it survives
 Per-app enable/disable choices and system-prompt overrides. This file can
 contain instructions you write for a specific app.
 
-Cotype restricts all four privacy-data files above to the current macOS account
+Cotype restricts all five privacy-data files above to the current macOS account
 (owner read/write only, POSIX mode `0600`).
 
 ## Retention

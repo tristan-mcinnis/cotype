@@ -1555,6 +1555,7 @@ struct StatisticsPane: View {
                     }
                 }
             }
+            NotShownCard(snapshot: NotShownStore.shared.snapshot)
             SettingsCard(title: "Per app") {
                 if perApp.isEmpty {
                     SlateBlock {
@@ -1830,10 +1831,36 @@ struct PrivacyDataPane: View {
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn {
             deleteResult = store.deleteAll()
+            NotShownStore.shared.reset()
             refresh += 1
         } else {
             deleteResult = nil
         }
+    }
+}
+
+struct NotShownCard: View {
+    let snapshot: NotShownSnapshot
+    private static let visibleReasons = 6
+
+    var body: some View {
+        SettingsCard(title: "Not shown", subtitle: "Why a requested completion never appeared. Counts only, no text") {
+            let ranked = Array(snapshot.ranked.prefix(Self.visibleReasons))
+            if ranked.isEmpty {
+                SlateBlock {
+                    SlateProse("Nothing has been held back yet.", tertiary: true)
+                }
+            } else {
+                ForEach(Array(ranked.enumerated()), id: \.offset) { index, entry in
+                    if index > 0 { SlateDivider() }
+                    StatRow(title: Self.title(for: entry.key), value: "\(entry.value.count)")
+                }
+            }
+        }
+    }
+
+    private static func title(for key: String) -> String {
+        NotShownReason(rawValue: key)?.title ?? key
     }
 }
 

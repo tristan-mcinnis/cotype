@@ -49,6 +49,9 @@ public final class CompletionPipeline {
     /// (e.g. the eval) that need more than the plain candidate string.
     public private(set) var lastOutcome: CompletionOutcome = .noSuggestion
     public private(set) var lastTimings = PipelineTimings()
+    /// Whether the most recent run abstained because the caret sat inside a
+    /// word the suffix already finishes.
+    public private(set) var lastRunAbstained = false
 
     /// Run one completion end-to-end, returning the sanitized text, the raw
     /// (pre-sanitization) engine output, the explicit outcome, and generation
@@ -56,6 +59,7 @@ public final class CompletionPipeline {
     /// both apply the same canonical sanitizer.
     @discardableResult
     public func completeWithOutcome(_ request: CompletionRequest) async throws -> (text: String, rawText: String, outcome: CompletionOutcome, timings: PipelineTimings) {
+        lastRunAbstained = false
         emit(.trigger, "request received for \(request.appIdentifier)")
 
         let context = try await contextProvider.provideContext(for: request)
@@ -65,6 +69,7 @@ public final class CompletionPipeline {
         // without spending a generation.
         if CaretBoundary.isInsideWord(prefix: context.prefix, suffix: context.suffix) {
             CotypeLog.loop.debug("abstain: caret inside a word")
+            lastRunAbstained = true
             renderer.clear()
             lastOutcome = .noSuggestion
             lastTimings = PipelineTimings()

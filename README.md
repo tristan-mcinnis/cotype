@@ -243,6 +243,40 @@ at:
 ~/Library/Application Support/Cotype/personalization.json
 ```
 
+Content-free usage counters (`privacy-metrics.json`) and the reasons a
+requested completion was not shown (`not-shown.json`) sit in the same folder.
+
+### `not-shown.json`
+
+Written next to `privacy-metrics.json` (atomic, owner-only, one debounced write
+per burst, drained on quit). Read it with any JSON tool; the Statistics pane
+shows the top reasons. It holds reason codes, counts, bundle identifiers and
+timestamps only: no typed text, completion text, or window titles.
+
+```json
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-10-16T21:00:00Z",
+  "total": {
+    "noCaretGeometry": { "count": 12, "lastSeen": "2026-10-16T20:58:11Z" }
+  },
+  "perApp": {
+    "org.telegram.desktop": {
+      "noCaretGeometry": { "count": 9, "lastSeen": "2026-10-16T20:58:11Z" }
+    }
+  }
+}
+```
+
+Reason keys: `completionsDisabled`, `appDisabled`, `noModel`, `noFocusedEditor`,
+`secureField`, `protectedContent`, `sensitiveApp`, `userExcludedApp`,
+`unreadableContext`, `engineFailure`, `cancelledWhileGenerating`,
+`abstainedInsideWord`, `emptyCompletion`, `focusChangedDuringGeneration`,
+`focusMismatchAtRender`, `noCaretGeometry`, `ghostDoesNotFit`. Each reason is
+counted at most once per completion request, and render-time reasons are not
+counted for a request that already drew its ghost. `perApp` holds at most 200
+bundle identifiers. Readers must ignore unknown reason keys.
+
 Per-app settings live at:
 
 ```text

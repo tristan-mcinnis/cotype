@@ -99,6 +99,10 @@ public final class GhostTextRenderer: CompletionRenderer {
     /// generated" with "suggestion shown" in usage metrics.
     public var onVisibilityChanged: (@MainActor (Bool) -> Void)?
 
+    /// Reports why a requested draw ended without a visible ghost: no caret
+    /// geometry, or a ghost that does not fit the field. Run on the main thread.
+    public var onNotShown: (@MainActor (NotShownReason) -> Void)?
+
     public func clear() {
         setPending(.hide)
     }
@@ -165,6 +169,7 @@ public final class GhostTextRenderer: CompletionRenderer {
         // draw, so this fails closed: hide, never show a pane or guess an anchor.
         guard let geometry = geometryProvider?.caretGeometry() else {
             CotypeLog.geometry.info("hide: no usable caret geometry")
+            MainActor.assumeIsolated { onNotShown?(.noCaretGeometry) }
             hideWindow()
             return
         }
@@ -189,6 +194,7 @@ public final class GhostTextRenderer: CompletionRenderer {
 
         guard !layout.lines.isEmpty else {
             CotypeLog.geometry.info("hide: ghost does not fit the field at the caret")
+            MainActor.assumeIsolated { onNotShown?(.ghostDoesNotFit) }
             hideWindow()
             return
         }

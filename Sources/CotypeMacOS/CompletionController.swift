@@ -38,6 +38,8 @@ public final class CompletionController: ObservableObject {
     public let engineManager: EngineManager
     public let personalization: PersonalizationStore
     public let overrides: AppOverridesStore
+    private let notShown: NotShownStore?
+    private var notShownRecorded: Set<NotShownReason> = []
 
     private let inserter: CompletionInserter
     /// One overlay renderer for the controller's lifetime. Reusing it prevents
@@ -114,6 +116,7 @@ public final class CompletionController: ObservableObject {
         engineManager: EngineManager,
         personalization: PersonalizationStore = PersonalizationStore(),
         overrides: AppOverridesStore = AppOverridesStore(),
+        notShown: NotShownStore? = nil,
         inserter: CompletionInserter = CompletionInsertionRouter(),
         renderer: CompletionRenderer = GhostTextRenderer(),
         pipelineEngineOverride: InferenceEngine? = nil,
@@ -128,6 +131,7 @@ public final class CompletionController: ObservableObject {
         userDefaults: UserDefaults = .standard
     ) {
         self.engineManager = engineManager
+        self.notShown = notShown
         self.personalization = personalization
         self.overrides = overrides
         self.inserter = inserter
@@ -269,6 +273,7 @@ public final class CompletionController: ObservableObject {
     @discardableResult
     private func performGenerate(source: CompletionInteraction.Source) -> Bool {
         guard completionsEnabled else {
+            noteNotShown(.completionsDisabled, appIdentifier: frontmostAppProvider() ?? "unknown")
             lastError = "Completions are disabled."
             CotypeLog.loop.debug("skip: completions disabled")
             return false
@@ -284,6 +289,7 @@ public final class CompletionController: ObservableObject {
                 lastError = "Completions are off for \(appIdentifier). Turn it on in Apps settings."
             }
             CotypeLog.loop.debug("skip: disabled for \(appIdentifier, privacy: .public)")
+            noteNotShown(.appDisabled, appIdentifier: appIdentifier)
             return false
         }
         // Daemon mode is a first-class production model source: with the Local
@@ -294,6 +300,7 @@ public final class CompletionController: ObservableObject {
         guard pipelineEngineOverride != nil || daemonEngine != nil || engineManager.modelPath != nil else {
             lastError = "No model installed. Open Cotype Setup to install the local model."
             CotypeLog.loop.error("skip: no model")
+            noteNotShown(.noModel, appIdentifier: appIdentifier)
             return false
         }
 
@@ -302,6 +309,7 @@ public final class CompletionController: ObservableObject {
         guard let focusTarget = focusIdentityProvider.currentFocusTarget() else {
             lastError = "Cotype could not identify the focused editor. Check Accessibility permission."
             CotypeLog.loop.info("skip: no focused editor in \(appIdentifier, privacy: .public)")
+            noteNotShown(.noFocusedEditor, appIdentifier: appIdentifier)
             return false
         }
 
@@ -312,6 +320,7 @@ public final class CompletionController: ObservableObject {
             abortInFlight()
         }
 
+        notShownRecorded = []
         // A fresh generation starts a fresh commit-chain / render epoch.
         let myID = flow.beginGeneration()
         activeRenderGenerationID = myID
@@ -361,6 +370,10 @@ public final class CompletionController: ObservableObject {
         // and the focus target still matches; otherwise the deferred drain fails
         // closed (see `canRenderGhost`).
         renderer.renderGuard = { [weak self] in self?.canRenderGhost() ?? false }
+        renderer.onNotShown = { [weak self] reason in
+            guard let self, self.activeRenderGenerationID == myID else { return }
+            self.noteNotShown(reason, appIdentifier: self.activeAppIdentifier)
+        }
         renderer.onVisibilityChanged = { [weak self] visible in
             guard let self else { return }
             // One overlay window serves every generation, so this mirrors the
@@ -429,7 +442,7 @@ public final class CompletionController: ObservableObject {
                 let result = try await pipeline.complete(request)
                 await MainActor.run {
                     guard self.flow.isCurrent(myID) else { return }
-                    self.completeSuccessfully(result)
+                    self.completeSuccessfully(result, abstained: pipeline.lastRunAbstained)
                 }
             } catch is CancellationError {
                 await MainActor.run {
@@ -452,7 +465,7 @@ public final class CompletionController: ObservableObject {
         return true
     }
 
-    private func completeSuccessfully(_ result: String) {
+    private func completeSuccessfully(_ result: String, abstained: Bool) {
         CotypeLog.loop.debug("generated \(result.count, privacy: .public) chars for \(self.activeAppIdentifier, privacy: .public)")
         // Validate the exact focus target once at the candidate boundary — the
         // last moment before a ghost could be drawn or accepted — rather than on
@@ -461,11 +474,13 @@ public final class CompletionController: ObservableObject {
         // so the loop returns to idle instead of parking in `awaitingAccept`.
         guard isFocusTargetValid() else {
             CotypeLog.loop.info("drop: focus target changed during generation in \(self.activeAppIdentifier, privacy: .public)")
+            noteNotShown(.focusChangedDuringGeneration, appIdentifier: activeAppIdentifier)
             cancel(recordingRejection: true)
             return
         }
         if result.isEmpty {
             CotypeLog.loop.info("none: no usable suggestion for \(self.activeAppIdentifier, privacy: .public)")
+            noteNotShown(abstained ? .abstainedInsideWord : .emptyCompletion, appIdentifier: activeAppIdentifier)
             flow.finishWithoutCandidate()
             applyInteraction(.noSuggestion)
             clearRequestIdentity()
@@ -477,6 +492,10 @@ public final class CompletionController: ObservableObject {
 
     private func releaseAfterPrivacyGate(_ gate: SensitiveContextError) {
         CotypeLog.loop.info("gate: \(String(describing: gate), privacy: .public) in \(self.activeAppIdentifier, privacy: .public)")
+        switch gate {
+        case .gated(let category): noteNotShown(NotShownReason(gate: category), appIdentifier: activeAppIdentifier)
+        case .unreadable: noteNotShown(.unreadableContext, appIdentifier: activeAppIdentifier)
+        }
         collectingRenderer?.clear()
         applyInteraction(.noSuggestion)
         clearRequestIdentity()
@@ -486,6 +505,7 @@ public final class CompletionController: ObservableObject {
     private func releaseAfterFailure(_ error: Error) {
         CotypeLog.loop.error("fail: \((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)), privacy: .public) in \(self.activeAppIdentifier, privacy: .public)")
         let appIdentifier = activeAppIdentifier
+        noteNotShown(.engineFailure, appIdentifier: appIdentifier)
         collectingRenderer?.clear()
         applyInteraction(.noSuggestion)
         clearRequestIdentity()
@@ -495,6 +515,7 @@ public final class CompletionController: ObservableObject {
 
     private func releaseAfterCancel() {
         let appIdentifier = activeAppIdentifier
+        noteNotShown(.cancelledWhileGenerating, appIdentifier: appIdentifier)
         clearActiveState()
         flow.cancel()
         personalization.recordCanceled(appIdentifier: appIdentifier)
@@ -537,6 +558,7 @@ public final class CompletionController: ObservableObject {
         let valid = isFocusTargetValid()
         if !valid {
             CotypeLog.loop.info("hide: focus target no longer matches in \(self.activeAppIdentifier, privacy: .public)")
+            noteNotShown(.focusMismatchAtRender, appIdentifier: activeAppIdentifier)
         }
         return valid
     }
@@ -569,6 +591,9 @@ public final class CompletionController: ObservableObject {
         let wasShown = phase == .awaitingAccept
         if wasShown || phase == .generating {
             CotypeLog.loop.debug("dismiss: cancelled in \(self.activeAppIdentifier, privacy: .public)")
+        }
+        if phase == .generating {
+            noteNotShown(.cancelledWhileGenerating, appIdentifier: activeAppIdentifier)
         }
         let candidate = currentCandidate
         let appIdentifier = activeAppIdentifier
@@ -673,6 +698,16 @@ public final class CompletionController: ObservableObject {
         }
     }
 
+    /// Counts one not-shown reason per request. A request that already drew a
+    /// ghost is not counted again for later redraw failures.
+    private func noteNotShown(_ reason: NotShownReason, appIdentifier: String) {
+        guard let notShown else { return }
+        let alreadyDrawn = shownMetricGenerationID == activeRenderGenerationID
+        if alreadyDrawn, [.noCaretGeometry, .ghostDoesNotFit, .focusMismatchAtRender].contains(reason) { return }
+        guard notShownRecorded.insert(reason).inserted else { return }
+        notShown.record(reason, appIdentifier: appIdentifier)
+    }
+
     /// Cancel the in-flight pipeline without recording a rejection. Used when
     /// typing supersedes a generation or a mismatch regenerates.
     ///
@@ -682,6 +717,9 @@ public final class CompletionController: ObservableObject {
     /// recognize its own epoch so it completes/fails cleanly without poisoning a
     /// later generation.
     private func abortInFlight() {
+        if flow.isGenerating {
+            noteNotShown(.cancelledWhileGenerating, appIdentifier: activeAppIdentifier)
+        }
         flow.cancel()
         pipelineTask?.cancel()
         collectingRenderer?.clear()
@@ -874,6 +912,11 @@ final class CollectingRenderer: CompletionRenderer {
     var renderGuard: (@MainActor () -> Bool)? {
         get { (inner as? GhostTextRenderer)?.renderGuard }
         set { (inner as? GhostTextRenderer)?.renderGuard = newValue }
+    }
+
+    var onNotShown: (@MainActor (NotShownReason) -> Void)? {
+        get { (inner as? GhostTextRenderer)?.onNotShown }
+        set { (inner as? GhostTextRenderer)?.onNotShown = newValue }
     }
 
     /// Forward real post-AppKit visibility changes from the production overlay.
