@@ -23,16 +23,23 @@ let package = Package(
         // the framework (and its bundled Updater.app / XPC services) in the
         // release bundle. See docs/RELEASE.md.
         .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.6.0"),
+        .package(url: "https://github.com/tristan-mcinnis/design-system", from: "1.0.0"),
     ],
     targets: [
         .target(name: "CotypeUpdateCore"),
         .target(name: "CotypeCore", dependencies: ["llama"]),
         .target(name: "CotypeEval", dependencies: ["CotypeCore"]),
-        .target(name: "CotypeMacOS", dependencies: ["CotypeCore"]),
+        .target(name: "CotypeMacOS", dependencies: ["CotypeCore", .product(name: "HouseDesign", package: "design-system")]),
         .executableTarget(name: "CotypeUpdate", dependencies: ["CotypeUpdateCore"]),
         .executableTarget(name: "CotypeApp", dependencies: ["CotypeCore"]),
         .executableTarget(name: "CotypeEvalApp", dependencies: ["CotypeEval", "CotypeMacOS"]),
-        .executableTarget(name: "CotypeMenuApp", dependencies: ["CotypeCore", "CotypeMacOS", .product(name: "Sparkle", package: "Sparkle")]),
+        .executableTarget(name: "CotypeMenuApp", dependencies: [
+            "CotypeCore",
+            "CotypeMacOS",
+            .product(name: "Sparkle", package: "Sparkle"),
+            .product(name: "HouseDesign", package: "design-system"),
+            .product(name: "HouseUIKit", package: "design-system"),
+        ]),
         .executableTarget(name: "CotypeDiagnostics", dependencies: ["CotypeCore"]),
         .testTarget(name: "CotypeCoreTests", dependencies: ["CotypeCore"]),
         .testTarget(name: "CotypeUpdateCoreTests", dependencies: ["CotypeUpdateCore"]),
@@ -40,7 +47,11 @@ let package = Package(
         .testTarget(name: "CotypeMacOSTests", dependencies: ["CotypeMacOS", "CotypeCore"]),
         // The menu app's own window rules: the menu bar a normal window gets,
         // and when the app goes back to being a menu-bar app.
-        .testTarget(name: "CotypeMenuAppTests", dependencies: ["CotypeMenuApp"]),
+        .testTarget(name: "CotypeMenuAppTests", dependencies: [
+            "CotypeMenuApp",
+            .product(name: "HouseDesign", package: "design-system"),
+            .product(name: "HouseUIKit", package: "design-system"),
+        ]),
         .binaryTarget(
             name: "llama",
             url: "https://github.com/ggml-org/llama.cpp/releases/download/b10665/llama-b10665-xcframework.zip",

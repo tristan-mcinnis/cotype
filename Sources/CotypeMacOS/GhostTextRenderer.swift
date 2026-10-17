@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import CotypeCore
+import HouseDesign
 
 /// A transparent, non-activating, inline ghost-text overlay.
 ///

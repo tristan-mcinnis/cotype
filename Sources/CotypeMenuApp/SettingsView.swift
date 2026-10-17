@@ -2,6 +2,8 @@ import SwiftUI
 import AppKit
 import CotypeCore
 import CotypeMacOS
+import HouseDesign
+import HouseUIKit
 
 /// The fixed sidebar sections of the Cotype settings window.
 enum SettingsSection: String, CaseIterable, Identifiable {

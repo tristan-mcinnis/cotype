@@ -1,6 +1,8 @@
 import SwiftUI
 import AppKit
 import CotypeCore
+import HouseDesign
+import HouseUIKit
 
 /// Functional per-app configuration backed by `AppOverridesStore` and populated
 /// by `PersonalizationStore` sample counts.

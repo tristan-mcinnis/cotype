@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 import CotypeCore
 import CotypeMacOS
+import HouseDesign
+import HouseUIKit
 
 // Offscreen render proof. `cotype-menu --render-proof <dir>` draws the Slate
 // surfaces into PNGs without ever putting a window on screen, so the design can

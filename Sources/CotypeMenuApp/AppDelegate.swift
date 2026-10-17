@@ -5,6 +5,8 @@ import CoreGraphics
 import Combine
 import CotypeCore
 import CotypeMacOS
+import HouseDesign
+import HouseUIKit
 
 /// Menu-bar app delegate. Owns the status item, the lazy engine, the completion
 /// controller, the global key monitor, and the settings window.

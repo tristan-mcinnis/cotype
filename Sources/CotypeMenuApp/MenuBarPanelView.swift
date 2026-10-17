@@ -3,6 +3,8 @@ import AppKit
 import Combine
 import CotypeCore
 import CotypeMacOS
+import HouseDesign
+import HouseUIKit
 
 // The menu-bar surface. The old NSMenu is replaced by a 300 px Slate panel: the
 // same glass as every other floating Cotype panel, a header with the live model

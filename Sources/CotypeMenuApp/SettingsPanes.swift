@@ -4,6 +4,8 @@ import ServiceManagement
 import UniformTypeIdentifiers
 import CotypeCore
 import CotypeMacOS
+import HouseDesign
+import HouseUIKit
 
 // MARK: - Reusable model status card
 

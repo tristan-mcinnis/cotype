@@ -21,12 +21,11 @@ The product name is always **Cotype** in user-facing copy. Technical identifiers
 
 ## Rules
 
-- Look: `../design-system/DESIGN.md`. Two generated copies of `HouseDesign.swift`
-  live here (`Sources/CotypeMacOS`, `Sources/CotypeMenuApp`); refresh both from
-  design-system, never edit them. `HouseUI.swift` and `MenuBarPanel.swift` in
-  `Sources/CotypeMenuApp` are the shared menu-bar kit, byte copies of
-  `../design-system/kit/`: never edit them, change the kit there and run
-  `make sync-kit`.
+- Look: `../design-system/DESIGN.md`. The tokens (`HouseDesign`) and the shared
+  menu-bar kit (`HouseUIKit`) come from the design-system package, pinned in
+  `Package.swift` by GitHub URL and tag. There are no copies here: to change
+  the look, change design-system, tag it, and raise the pin. The menu app's own
+  panel code stays in `MenuBarPanelView.swift` and `MenuBarPanelController.swift`.
 - Code: `../design-system/SWIFT.md`. This repo's floor is **macOS 14, swift-tools
   5.10, XCTest**. Hold the floor; migrate to 6.2 and Swift Testing as one change,
   not file by file.
