@@ -385,6 +385,7 @@ private final class Rig {
             engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: makePersonalizationStore("e2e"),
             overrides: AppOverridesStore(fileURL: tempFileURL("e2e-overrides")),
+            websiteRules: makeWebsiteRulesStore(),
             inserter: TextViewInserter(editor: editor),
             renderer: renderer,
             daemonEngineProvider: { _ in engine },

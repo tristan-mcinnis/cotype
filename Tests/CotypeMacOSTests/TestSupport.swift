@@ -113,3 +113,21 @@ func makePersonalizationStore(_ name: String = "personalization") -> Personaliza
         metricsURL: tempFileURL("\(name)-metrics")
     )
 }
+
+/// A deterministic caret for tests that go through the real ghost renderer.
+/// Without it, `AXCaretGeometryProvider` reads the live screen and a test's
+/// result depends on which app happens to be frontmost.
+struct FixedCaretGeometry: InlineCaretGeometryProvider {
+    func caretGeometry() -> CaretGeometry? {
+        CaretGeometry(
+            caretRect: CGRect(x: 100, y: 200, width: 0, height: 20),
+            fieldBounds: CGRect(x: 50, y: 150, width: 400, height: 200)
+        )
+    }
+}
+
+/// An isolated website-rules store for controller tests. Never touches
+/// `~/Library/Application Support/Cotype`.
+func makeWebsiteRulesStore(_ name: String = "website-rules") -> WebsiteRulesStore {
+    WebsiteRulesStore(fileURL: tempFileURL(name))
+}

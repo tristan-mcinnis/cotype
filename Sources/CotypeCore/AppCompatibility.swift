@@ -44,8 +44,22 @@ public enum AppCompatibility {
         "net.imput.helium",
     ]
 
+    /// Browsers whose focused window can identify a website. The Chromium set
+    /// builds its AX tree lazily; Safari and Firefox expose the document URL on
+    /// the focused window through the same standard attribute.
+    public static let browsers: Set<String> = chromiumBrowsers.union([
+        "com.apple.Safari",
+        "com.apple.SafariTechnologyPreview",
+        "org.mozilla.firefox",
+        "org.mozilla.firefoxdeveloperedition",
+    ])
+
     public static func isTerminal(_ bundleID: String) -> Bool {
         terminals.contains(bundleID)
+    }
+
+    public static func isBrowser(_ bundleID: String) -> Bool {
+        browsers.contains(bundleID)
     }
 
     /// Whether completions run in this app, given the user's explicit override

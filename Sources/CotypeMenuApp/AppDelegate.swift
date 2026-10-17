@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let personalization = PersonalizationStore()
     private let overrides = AppOverridesStore()
+    private let websiteRules = WebsiteRulesStore()
     private let engineManager = EngineManager()
     private let localModels = LocalModelsMonitor()
     private let keyMonitor = GlobalKeyMonitor()
@@ -36,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             engineManager: engineManager,
             personalization: personalization,
             overrides: overrides,
+            websiteRules: websiteRules,
             notShown: .shared
         )
     }
@@ -271,7 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 glyph: "arrow.turn.down.left",
                 title: "Accept next word",
                 chord: "⇥",
-                isEnabled: phase == .awaitingAccept,
+                isEnabled: completionController.isAcceptKeyReady,
                 run: { [weak self] in self?.acceptCompletion() }
             ),
             PanelAction(
@@ -279,7 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 glyph: "checkmark",
                 title: "Accept all",
                 chord: keyMonitor.acceptAllShortcut.displayString,
-                isEnabled: phase == .awaitingAccept,
+                isEnabled: completionController.isAcceptKeyReady,
                 run: { [weak self] in self?.acceptAllCompletion() }
             ),
             PanelAction(
@@ -392,6 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             completionController: completionController,
             personalization: personalization,
             overrides: overrides,
+            websiteRules: websiteRules,
             updater: updater
         )
         let hosting = NSHostingController(rootView: rootView)

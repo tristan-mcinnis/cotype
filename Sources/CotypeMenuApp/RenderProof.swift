@@ -23,11 +23,16 @@ enum RenderProof {
             fileURL: directory.appendingPathComponent("proof-personalization.json")
         )
         let overrides = AppOverridesStore()
+        // Proof renders must not read the user's real website rules.
+        let websiteRules = WebsiteRulesStore(
+            fileURL: directory.appendingPathComponent("proof-website-rules.json")
+        )
         let engineManager = EngineManager()
         let completionController = CompletionController(
             engineManager: engineManager,
             personalization: personalization,
-            overrides: overrides
+            overrides: overrides,
+            websiteRules: websiteRules
         )
         let updater = SparkleUpdateController()
 

@@ -78,7 +78,7 @@ public final class EngineManager: ObservableObject, @unchecked Sendable {
         ),
         engineFactory: @escaping (String) throws -> any EngineClosable = { path in
             let defaults = UserDefaults.standard
-            let maxTokens = Int32(defaults.object(forKey: "maxTokens") as? Int ?? 64)
+            let maxTokens = Int32(TokenBudget.effective(defaults).tokens)
             let temperature = Float(defaults.object(forKey: "temperature") as? Double ?? 0.0)
             return try LlamaCppEngine(path: path, maxTokens: maxTokens, temperature: temperature)
         }

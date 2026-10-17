@@ -400,4 +400,174 @@ public enum SeededEvalSet {
             rubricTags: ["window-context", "entity"]
         ),
     ]
+
+    /// Held-out cases with real text after the cursor. Run this set in both
+    /// prompt styles (`COTYPE_EVAL_PROMPT_STYLE`) to compare the two supported
+    /// behaviors: the instruction lane sends the suffix as delimited
+    /// after-cursor context, the continuation lane only filters against it.
+    /// These cases are not part of the default gate because the continuation
+    /// lane cannot see the suffix and would be scored unfairly there.
+    public static let postCursorCases: [EvalCase] = [
+        EvalCase(
+            id: "postcursor-name",
+            prefix: "Please loop in ",
+            suffix: "Sam Rivera on the review.",
+            expected: "Sam Rivera",
+            acceptedAlternatives: ["Sam Rivera", "Sam"],
+            forbiddenSubstrings: forbidden(["Sam Rivera on the review"], echoOf: "Please loop in ", codeFence: false),
+            maxLength: 24,
+            rubricTags: ["postCursor", "entity"]
+        ),
+        EvalCase(
+            id: "postcursor-punctuation",
+            prefix: "The total came to ",
+            suffix: " (including tax).",
+            expected: "120",
+            acceptedAlternatives: ["120", "120 USD", "120 dollars"],
+            forbiddenSubstrings: forbidden(["including tax"], echoOf: "The total came to ", codeFence: false),
+            maxLength: 16,
+            rubricTags: ["postCursor", "prose"]
+        ),
+        EvalCase(
+            id: "postcursor-cjk",
+            prefix: "我们下周一",
+            suffix: "开会讨论一下",
+            expected: "开会",
+            acceptedAlternatives: ["开会", "开个会"],
+            forbiddenSubstrings: forbidden(["开会讨论一下"], echoOf: "我们下周一", codeFence: false),
+            maxLength: 12,
+            rubricTags: ["postCursor", "cjk"]
+        ),
+        EvalCase(
+            id: "postcursor-partial-word",
+            prefix: "return wid",
+            suffix: "th * height",
+            expected: "",
+            acceptedAlternatives: [],
+            forbiddenSubstrings: forbidden([], echoOf: "return wid", codeFence: false),
+            maxLength: 8,
+            rubricTags: ["postCursor", "abstain"]
+        ),
+        EvalCase(
+            id: "postcursor-email",
+            prefix: "Reply to ",
+            suffix: "sam@example.com for the details.",
+            expected: "sam@example.com",
+            acceptedAlternatives: ["sam@example.com", "sam"],
+            forbiddenSubstrings: forbidden(["for the details"], echoOf: "Reply to ", codeFence: false),
+            maxLength: 24,
+            rubricTags: ["postCursor", "entity"]
+        ),
+        EvalCase(
+            id: "postcursor-quote",
+            prefix: "She said \"",
+            suffix: "\" and left the room.",
+            expected: "I will be there",
+            acceptedAlternatives: ["I will be there", "hello"],
+            forbiddenSubstrings: forbidden(["and left the room"], echoOf: "She said \"", codeFence: false),
+            maxLength: 24,
+            rubricTags: ["postCursor", "prose"]
+        ),
+        EvalCase(
+            id: "postcursor-bracket",
+            prefix: "Operating profit (",
+            suffix: ") rose 4%.",
+            expected: "EBITDA",
+            acceptedAlternatives: ["EBITDA", "operating"],
+            forbiddenSubstrings: forbidden(["rose 4%"], echoOf: "Operating profit (", codeFence: false),
+            maxLength: 16,
+            rubricTags: ["postCursor", "entity"]
+        ),
+        EvalCase(
+            id: "postcursor-list",
+            prefix: "1. first item\n2. ",
+            suffix: "\n3. third item",
+            expected: "second item",
+            acceptedAlternatives: ["second item", "second"],
+            forbiddenSubstrings: forbidden(["third item"], echoOf: "1. first item\n2. ", codeFence: false),
+            maxLength: 16,
+            rubricTags: ["postCursor", "list"]
+        ),
+    ]
+
+    /// Held-out personal-writing cases for the instruction lane's style control.
+    /// The run's system message carries the style request
+    /// (`COTYPE_EVAL_SYSTEM_PROMPT`); a case "passes" when the continuation
+    /// violates none of the markers below. The expected text is empty on purpose:
+    /// this set measures adherence and contamination, not exact wording.
+    public static let adherenceCases: [EvalCase] = [
+        EvalCase(
+            id: "adherence-note",
+            prefix: "Just a quick note to say ",
+            expected: "",
+            forbiddenSubstrings: adherenceViolations,
+            maxLength: 60,
+            rubricTags: ["adherence", "writing"]
+        ),
+        EvalCase(
+            id: "adherence-timeline",
+            prefix: "Following up on the timeline, ",
+            expected: "",
+            forbiddenSubstrings: adherenceViolations,
+            maxLength: 60,
+            rubricTags: ["adherence", "writing"]
+        ),
+        EvalCase(
+            id: "adherence-status",
+            prefix: "Here is where things stand: ",
+            expected: "",
+            forbiddenSubstrings: adherenceViolations,
+            maxLength: 60,
+            rubricTags: ["adherence", "writing"]
+        ),
+        EvalCase(
+            id: "adherence-client",
+            prefix: "The client asked whether ",
+            expected: "",
+            forbiddenSubstrings: adherenceViolations,
+            maxLength: 60,
+            rubricTags: ["adherence", "writing"]
+        ),
+        EvalCase(
+            id: "adherence-budget",
+            prefix: "On the budget question, ",
+            expected: "",
+            forbiddenSubstrings: adherenceViolations,
+            maxLength: 60,
+            rubricTags: ["adherence", "writing"]
+        ),
+        EvalCase(
+            id: "adherence-workshop",
+            prefix: "Quick update from the workshop: ",
+            expected: "",
+            forbiddenSubstrings: adherenceViolations,
+            maxLength: 60,
+            rubricTags: ["adherence", "writing"]
+        ),
+        EvalCase(
+            id: "adherence-launch",
+            prefix: "To keep the launch moving, ",
+            expected: "",
+            forbiddenSubstrings: adherenceViolations,
+            maxLength: 60,
+            rubricTags: ["adherence", "writing"]
+        ),
+        EvalCase(
+            id: "adherence-review",
+            prefix: "Thanks for the review — ",
+            expected: "",
+            forbiddenSubstrings: adherenceViolations,
+            maxLength: 60,
+            rubricTags: ["adherence", "writing"]
+        ),
+    ]
+
+    /// Markers that violate the style request used for `adherenceCases`
+    /// ("Never use exclamation marks. Use 'we' rather than 'I'.") plus the
+    /// few-shot contamination markers. `"I "` and `"I'"` catch a standalone
+    /// first-person subject without matching letters inside words.
+    public static let adherenceViolations: [String] = [
+        "!", "I ", "I'", "I’", "I,",
+        "Input:", "Output:", "→", "```", "Sure,", "Here is",
+    ]
 }

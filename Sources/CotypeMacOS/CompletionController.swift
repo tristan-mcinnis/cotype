@@ -38,6 +38,11 @@ public final class CompletionController: ObservableObject {
     public let engineManager: EngineManager
     public let personalization: PersonalizationStore
     public let overrides: AppOverridesStore
+    /// Per-website enable/instruction rules. Read at trigger and revalidated at
+    /// accept; a host is only trusted when the browser window proves it.
+    public let websiteRules: WebsiteRulesStore
+    private let browserDomainProvider: BrowserDomainProviding
+    private let powerStateProvider: PowerStateProviding
     private let notShown: NotShownStore?
     private var notShownRecorded: Set<NotShownReason> = []
 
@@ -59,11 +64,20 @@ public final class CompletionController: ObservableObject {
     private let focusIdentityProvider: FocusIdentityProvider
     private let userDefaults: UserDefaults
     private var collectingRenderer: CollectingRenderer?
+    /// Whether the active overlay renderer can report real post-AppKit
+    /// visibility. Production always can; a renderer that cannot is treated as
+    /// showing what it was told to draw (and the controller still requires a
+    /// committed ghost). Reset to the fail-closed default per generation.
+    private var rendererReportsVisibility = true
     private var pipelineTask: Task<Void, Never>?
 
     private var activeAppIdentifier = "unknown"
     private var activeFocusTarget: FocusTarget?
     private var activePrefix = ""
+    /// The normalised website host captured at trigger time for a browser. At
+    /// accept the same host must still be shown, otherwise the site rule that
+    /// allowed this candidate no longer applies and nothing is inserted.
+    private var activeWebsiteDomain: String?
     private var flow = CompletionFlow()
     private var frontmostChangeObserver: NSObjectProtocol?
 
@@ -116,6 +130,9 @@ public final class CompletionController: ObservableObject {
         engineManager: EngineManager,
         personalization: PersonalizationStore = PersonalizationStore(),
         overrides: AppOverridesStore = AppOverridesStore(),
+        websiteRules: WebsiteRulesStore,
+        browserDomainProvider: BrowserDomainProviding = AXBrowserDomainProvider(),
+        powerStateProvider: PowerStateProviding = SystemPowerStateProvider(),
         notShown: NotShownStore? = nil,
         inserter: CompletionInserter = CompletionInsertionRouter(),
         renderer: CompletionRenderer = GhostTextRenderer(),
@@ -134,6 +151,9 @@ public final class CompletionController: ObservableObject {
         self.notShown = notShown
         self.personalization = personalization
         self.overrides = overrides
+        self.websiteRules = websiteRules
+        self.browserDomainProvider = browserDomainProvider
+        self.powerStateProvider = powerStateProvider
         self.inserter = inserter
         self.overlayRenderer = renderer
         self.pipelineEngineOverride = pipelineEngineOverride
@@ -258,7 +278,12 @@ public final class CompletionController: ObservableObject {
 
     /// Tab: accept the next word of the current suggestion, keeping the rest as
     /// a ghost so further Tab presses step through it.
+    ///
+    /// Like the full accept, this only acts on a preview the user can actually
+    /// see. A hidden candidate must never insert text, and Tab must reach the
+    /// app as usual in that case.
     public func acceptNextWord() {
+        guard canAcceptVisiblePreview() else { return }
         applyInteraction(.acceptNextWord)
     }
 
@@ -280,6 +305,19 @@ public final class CompletionController: ObservableObject {
         }
 
         let appIdentifier = frontmostAppProvider() ?? "unknown"
+
+        // Battery policy applies to automatic (typing-pause) suggestions only.
+        // A manual trigger is a direct instruction and always runs.
+        if source == .debounce,
+           BatteryPolicy.pausesAutomatic(
+               powerStateProvider.current(),
+               settings: BatteryPolicy.Settings.current(userDefaults)
+           ) {
+            CotypeLog.loop.debug("skip: automatic suggestion paused by power policy")
+            noteNotShown(.pausedByPowerPolicy, appIdentifier: appIdentifier)
+            return false
+        }
+
         let override = overrides.override(for: appIdentifier)
         // Terminals are off unless the user enabled the app explicitly, like
         // every reference app: no caret bounds, and Tab belongs to the shell.
@@ -290,6 +328,22 @@ public final class CompletionController: ObservableObject {
             }
             CotypeLog.loop.debug("skip: disabled for \(appIdentifier, privacy: .public)")
             noteNotShown(.appDisabled, appIdentifier: appIdentifier)
+            return false
+        }
+
+        // Website rules are more specific than the app setting, but only a
+        // trustworthy host may apply one. An unknown identity never broadens
+        // the app policy: the app default stays in force.
+        let browserHost = AppCompatibility.isBrowser(appIdentifier)
+            ? browserDomainProvider.currentDomain(appIdentifier: appIdentifier)
+            : nil
+        let websiteRule = browserHost.flatMap { websiteRules.rule(forHost: $0) }
+        if let rule = websiteRule?.rule, rule.enabled == false {
+            if source == .manual {
+                lastError = "Completions are off for \(websiteRule?.key ?? browserHost ?? "this website")."
+            }
+            CotypeLog.loop.debug("skip: disabled for website \(websiteRule?.key ?? "unknown", privacy: .public)")
+            noteNotShown(.websiteDisabled, appIdentifier: appIdentifier)
             return false
         }
         // Daemon mode is a first-class production model source: with the Local
@@ -328,17 +382,35 @@ public final class CompletionController: ObservableObject {
         phase = .generating
 
         let length = SuggestionLength.current(userDefaults)
-        let defaultPrompt = userDefaults.string(forKey: "systemPrompt")
-            ?? AutocompletePrompt.defaultSystem
+        let storedPrompt = userDefaults.string(forKey: "systemPrompt")
+        // A prompt only counts when the user actually wrote something. The
+        // shipped default is instruction boilerplate for the chat lane and is
+        // never treated as a custom instruction.
+        let globalInstruction = (storedPrompt == nil || storedPrompt == AutocompletePrompt.defaultSystem)
+            ? ""
+            : (storedPrompt ?? "")
+        // One precedence for both prompt styles: website, then app, then global.
+        // The chosen style never changes because an override exists.
+        let customInstruction = Self.firstNonEmpty([
+            websiteRule?.rule.systemPrompt,
+            override.systemPrompt,
+            globalInstruction,
+        ])
+        let style = PromptStyle.current(userDefaults)
+        // The chat lane's system message is the continuation directive plus the
+        // author's style note. The continuation lane does not transmit `system`.
+        let systemPromptText = AutocompletePrompt.system(
+            for: style,
+            customInstruction: customInstruction,
+            length: length
+        )
         let facts = userDefaults.string(forKey: Self.personalFactsKey) ?? ""
         var promptBuilder = TemplatePromptBuilder(
             systemTemplate: AutocompletePrompt.withPersonalFacts(
-                length.applied(to: override.systemPrompt ?? defaultPrompt),
+                length.applied(to: systemPromptText),
                 facts: facts
             ),
-            // A per-app system prompt only means something to the instruction
-            // prompt, so an app with one keeps that style.
-            style: override.systemPrompt == nil ? PromptStyle.current(userDefaults) : .instruction,
+            style: style,
             personalFacts: facts
         )
         if contentLoggingEnabled {
@@ -356,6 +428,7 @@ public final class CompletionController: ObservableObject {
         collectingRenderer?.clear()
 
         let renderer = CollectingRenderer(inner: overlayRenderer)
+        rendererReportsVisibility = renderer.reportsVisibility
         // Coalesce the engine's per-token callbacks into at most one pending
         // main-actor update per run-loop turn (the newest token wins). This keeps
         // the full AX editor traversal out of the streaming path: focus is
@@ -434,6 +507,7 @@ public final class CompletionController: ObservableObject {
         lastError = nil
         activeAppIdentifier = appIdentifier
         activeFocusTarget = focusTarget
+        activeWebsiteDomain = browserHost
         activePrefix = ""
 
         pipelineTask = Task { [weak self] in
@@ -574,7 +648,7 @@ public final class CompletionController: ObservableObject {
     /// Accept the whole suggestion (full-suggestion chord / menu). Routes through
     /// the machine so the loop stays consistent.
     public func accept() {
-        guard phase == .awaitingAccept, candidateAvailable, activeAppIdentifier != "unknown" else {
+        guard canAcceptVisiblePreview(), candidateAvailable, activeAppIdentifier != "unknown" else {
             return
         }
         guard isFocusTargetValid() else {
@@ -583,6 +657,36 @@ public final class CompletionController: ObservableObject {
             return
         }
         applyInteraction(.acceptAll)
+    }
+
+    /// The visible-preview acceptance invariant: a candidate may only be
+    /// inserted while its ghost is on screen and, in a browser, while the same
+    /// website is still the one the candidate was generated for. Both accept
+    /// entry points use this, and the commit path re-checks it immediately
+    /// before inserting.
+    private func canAcceptVisiblePreview() -> Bool {
+        guard phase == .awaitingAccept else { return false }
+        let previewVisible = isGhostVisible
+            || (!rendererReportsVisibility && lastRenderedGhost?.isEmpty == false)
+        guard previewVisible else {
+            CotypeLog.loop.info("drop: accept while no preview is visible in \(self.activeAppIdentifier, privacy: .public)")
+            return false
+        }
+        guard isWebsiteIdentityUnchanged() else {
+            CotypeLog.loop.info("drop: website changed before accept in \(self.activeAppIdentifier, privacy: .public)")
+            cancel(recordingRejection: true)
+            return false
+        }
+        return true
+    }
+
+    /// In a browser, the captured host must still be the shown host. Unknown or
+    /// changed identity fails closed: the site rule that allowed the candidate
+    /// may no longer apply after a navigation.
+    private func isWebsiteIdentityUnchanged() -> Bool {
+        guard AppCompatibility.isBrowser(activeAppIdentifier) else { return true }
+        let current = browserDomainProvider.currentDomain(appIdentifier: activeAppIdentifier)
+        return current == activeWebsiteDomain
     }
 
     /// Cancel/dismiss. Routes through the machine (`dismissed`) so the loop
@@ -739,6 +843,9 @@ public final class CompletionController: ObservableObject {
     /// captured target so the next queued segment validates against the new caret.
     private func commitSegment(_ text: String) {
         guard !text.isEmpty else { return }
+        // The invariant is checked at the public accept entry points, then again
+        // here before anything is queued: no visible preview, no insertion.
+        guard canAcceptVisiblePreview() else { return }
         // Already-failed chain: refuse (a fresh epoch is needed to accept again).
         if failedCommitEpochs.contains(activeRenderGenerationID) { return }
         let epoch = activeRenderGenerationID
@@ -779,6 +886,19 @@ public final class CompletionController: ObservableObject {
                     if chainEnding { self.clearRequestIdentity() }
                     self.personalization.recordFailed(appIdentifier: appIdentifier)
                     self.lastError = "The focus changed before the completion was inserted."
+                }
+                return
+            }
+            // A browser that navigated after the preview was drawn invalidates
+            // the website rule the candidate was generated under.
+            guard self.isWebsiteIdentityUnchanged() else {
+                CotypeLog.loop.info("drop: website changed before insert in \(appIdentifier, privacy: .public)")
+                await MainActor.run {
+                    self.failedCommitEpochs.insert(epoch)
+                    self.dismissCommitRemainder(epoch: epoch)
+                    if chainEnding { self.clearRequestIdentity() }
+                    self.personalization.recordFailed(appIdentifier: appIdentifier)
+                    self.lastError = "The website changed before the completion was inserted."
                 }
                 return
             }
@@ -824,6 +944,17 @@ public final class CompletionController: ObservableObject {
         }
     }
 
+    /// The first non-empty, trimmed value. Used so an empty override never
+    /// shadows a parent value in the site > app > global chain.
+    static func firstNonEmpty(_ candidates: [String?]) -> String {
+        for candidate in candidates {
+            guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else { continue }
+            return trimmed
+        }
+        return ""
+    }
+
     private static func nanoseconds(_ interval: TimeInterval) -> UInt64 {
         UInt64(interval * 1_000_000_000)
     }
@@ -851,6 +982,7 @@ public final class CompletionController: ObservableObject {
     private func clearRequestIdentity() {
         activeAppIdentifier = "unknown"
         activeFocusTarget = nil
+        activeWebsiteDomain = nil
         activePrefix = ""
         // Do NOT reset activeRenderGenerationID here: the in-flight commit chain
         // of the currently-accepted candidate still needs to recognize its own
@@ -898,6 +1030,17 @@ final class CollectingRenderer: CompletionRenderer {
 
     func clear() {
         inner.clear()
+        if !(inner is GhostTextRenderer) {
+            fallbackShowing = false
+            // Pipeline stages may clear from a background executor; a simple
+            // renderer's report must hop to main rather than assume isolation.
+            let report = fallbackVisibility
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { report?(false) }
+            } else {
+                DispatchQueue.main.async { report?(false) }
+            }
+        }
     }
 
     /// Update the ghost overlay without re-triggering the candidate callback.
@@ -906,6 +1049,16 @@ final class CollectingRenderer: CompletionRenderer {
     /// `CompletionRequest` is vestigial for positioning.
     func setGhost(_ candidate: String) {
         inner.present(candidate, for: CompletionRequest())
+        if !(inner is GhostTextRenderer) {
+            fallbackShowing = !candidate.isEmpty
+            let report = fallbackVisibility
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { report?(fallbackShowing) }
+            } else {
+                let showing = fallbackShowing
+                DispatchQueue.main.async { report?(showing) }
+            }
+        }
     }
 
     /// Forward the render-time guard to the underlying ghost renderer.
@@ -919,14 +1072,36 @@ final class CollectingRenderer: CompletionRenderer {
         set { (inner as? GhostTextRenderer)?.onNotShown = newValue }
     }
 
-    /// Forward real post-AppKit visibility changes from the production overlay.
+    /// Visibility reports. The production overlay reports its real post-AppKit
+    /// visibility. A test renderer that cannot report is treated as showing what
+    /// it was told to draw, so the controller's visible-preview invariant stays
+    /// testable without a window.
+    private var fallbackVisibility: (@MainActor (Bool) -> Void)?
+    private var fallbackShowing = false
+
     var onVisibilityChanged: (@MainActor (Bool) -> Void)? {
-        get { (inner as? GhostTextRenderer)?.onVisibilityChanged }
-        set { (inner as? GhostTextRenderer)?.onVisibilityChanged = newValue }
+        get {
+            if let ghost = inner as? GhostTextRenderer { return ghost.onVisibilityChanged }
+            return fallbackVisibility
+        }
+        set {
+            if let ghost = inner as? GhostTextRenderer {
+                ghost.onVisibilityChanged = newValue
+            } else {
+                fallbackVisibility = newValue
+            }
+        }
     }
 
     /// Whether the underlying ghost overlay is showing. Exposed for tests.
-    var isShowing: Bool { (inner as? GhostTextRenderer)?.isShowing ?? false }
+    var isShowing: Bool {
+        if let ghost = inner as? GhostTextRenderer { return ghost.isShowing }
+        return fallbackShowing
+    }
+
+    /// Whether this renderer reports real visibility. The production overlay
+    /// does; a simple test renderer does not.
+    var reportsVisibility: Bool { inner is GhostTextRenderer }
 }
 
 /// Coalesces a burst of streamed candidate callbacks into at most one pending

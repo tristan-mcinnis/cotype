@@ -526,9 +526,14 @@ final class ModelInstallerTests: XCTestCase {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Bounded by a real clock, not a fixed number of yields: a busy
+    /// cooperative pool can need more scheduling turns than any guessed count,
+    /// and a count-based loop fails on slow machines. No sleeps.
     @MainActor
-    private func waitUntil(_ condition: () -> Bool, timeout: Int = 2000) async {
-        for _ in 0..<timeout {
+    private func waitUntil(_ condition: () -> Bool, timeout: Duration = .seconds(2)) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
             if condition() { return }
             await Task.yield()
         }

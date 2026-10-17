@@ -15,9 +15,9 @@ public struct DaemonRoutedEngine: InferenceEngine {
     /// longer trusts this hidden value; the Local Models registry is authoritative.
     public static let endpointKey = "localModelsDaemonEndpoint"
     public static let modelKey = "localModelsDaemonModel"
-    /// Generation-tuning keys shared with the standalone model pane, so the
-    /// daemon lane honors the same token budget and temperature preferences.
-    public static let maxTokensKey = "maxTokens"
+    /// Generation-tuning keys. The budget key is the explicit-override value;
+    /// `TokenBudget` decides whether it applies at all.
+    public static let maxTokensKey = TokenBudget.explicitValueKey
     public static let temperatureKey = "temperature"
     public static let defaultEndpoint = "http://127.0.0.1:8079/v1"
     public static let defaultModel = "gemma-it"
@@ -37,8 +37,9 @@ public struct DaemonRoutedEngine: InferenceEngine {
     public static func daemonEngine(defaults: UserDefaults = .standard) -> LocalModelsCompletionEngine? {
         guard defaults.bool(forKey: enabledKey) else { return nil }
         let model = defaults.string(forKey: modelKey) ?? defaultModel
-        // An explicit token budget wins; otherwise the suggestion length decides.
-        let maxTokens = defaults.object(forKey: maxTokensKey) as? Int ?? SuggestionLength.current(defaults).maxTokens
+        // One policy decides the budget for every lane; the Settings pane shows
+        // exactly this number.
+        let maxTokens = TokenBudget.effective(defaults).tokens
         let temperature = defaults.object(forKey: temperatureKey) as? Double ?? OpenAICompatibleEngine.defaultTemperature
         return LocalModelsCompletionEngine(modelAlias: model, maxTokens: maxTokens, temperature: temperature)
     }

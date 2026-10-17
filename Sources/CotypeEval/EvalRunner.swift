@@ -20,14 +20,23 @@ public struct EvalRunner {
     public static func run(
         cases: [EvalCase],
         engine: InferenceEngine,
-        systemPrompt: String = AutocompletePrompt.defaultSystem,
-        style: PromptStyle = .default
+        customInstruction: String = "",
+        style: PromptStyle = .default,
+        length: SuggestionLength = .default,
+        examples: String = ""
     ) async -> [EvalResult] {
         var results: [EvalResult] = []
         results.reserveCapacity(cases.count)
 
         for evalCase in cases {
-            results.append(await run(case: evalCase, engine: engine, systemPrompt: systemPrompt, style: style))
+            results.append(await run(
+                case: evalCase,
+                engine: engine,
+                customInstruction: customInstruction,
+                style: style,
+                length: length,
+                examples: examples
+            ))
         }
 
         return results
@@ -37,12 +46,31 @@ public struct EvalRunner {
     public static func run(
         case evalCase: EvalCase,
         engine: InferenceEngine,
-        systemPrompt: String = AutocompletePrompt.defaultSystem,
-        style: PromptStyle = .default
+        customInstruction: String = "",
+        style: PromptStyle = .default,
+        length: SuggestionLength = .default,
+        examples: String = ""
     ) async -> EvalResult {
+        // `systemPrompt` is the author's custom style note for the instruction
+        // lane; the continuation directive in front of it is fixed. The
+        // continuation lane does not transmit `system`.
+        // The eval composes exactly what the app sends: an empty custom
+        // instruction means "no style note", never the legacy boilerplate.
+        let system = AutocompletePrompt.system(
+            for: style,
+            customInstruction: customInstruction,
+            length: length
+        )
+        var builder = TemplatePromptBuilder(
+            systemTemplate: system,
+            style: style
+        )
+        if !examples.isEmpty {
+            builder.personalizationSummary = { examples }
+        }
         let pipeline = CompletionPipeline(
             contextProvider: StaticContextProvider(),
-            promptBuilder: TemplatePromptBuilder(systemTemplate: systemPrompt, style: style),
+            promptBuilder: builder,
             engine: engine,
             renderer: NoopRenderer(),
             inserter: PrintInserter()

@@ -52,6 +52,7 @@ final class DaemonRoutingControllerTests: XCTestCase {
             engineManager: engineManager,
             personalization: personalization,
             overrides: overrides,
+            websiteRules: makeWebsiteRulesStore(),
             inserter: inserter,
             daemonEngineProvider: daemonResponse.map(mockDaemonProvider) ?? { _ in nil },
             contextProviderOverride: StaticContextProvider(),

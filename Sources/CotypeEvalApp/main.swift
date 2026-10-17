@@ -88,10 +88,17 @@ let engineName = flagValue("--engine") ?? "mock"
 let modelPath = flagValue("--model") ?? LlamaCppEngine.defaultModelPath()
 let maxTokens = Int32(intFlag("--max-tokens", default: 128))
 let limit = intFlag("--limit", default: 0)
-let systemPrompt = envText("COTYPE_EVAL_SYSTEM_PROMPT", default: AutocompletePrompt.defaultSystem)
+// The author's custom writing-style note for the instruction lane. Empty means
+// none; the fixed continuation directive is added by the app-equivalent
+// composition. This is not the legacy `Input:/Output:` boilerplate.
+let systemPrompt = envText("COTYPE_EVAL_SYSTEM_PROMPT", default: "")
 // Prompt style under test (default: the app's default). A/B only; the gate
 // command does not set it.
 let promptStyle = PromptStyle(rawValue: envText("COTYPE_EVAL_PROMPT_STYLE", default: PromptStyle.default.rawValue)) ?? .default
+let evalLength = SuggestionLength(rawValue: envText("COTYPE_EVAL_LENGTH", default: SuggestionLength.default.rawValue)) ?? .default
+// Learned-example A/B input for the instruction lane. Empty (the default) keeps
+// the measured request unchanged.
+let evalExamples = envText("COTYPE_EVAL_EXAMPLES", default: "")
 
 let engine: InferenceEngine
 let engineLabel: String
@@ -160,22 +167,46 @@ let gates = EvalGates(
     minValidRate: doubleFlag("--min-valid-rate", default: 0.90)
 )
 
+let adherenceSet = hasFlag("--adherence-set")
 var cases = hasFlag("--window-context-set")
     ? SeededEvalSet.windowContextCases
-    : SeededEvalSet.cases
+    : hasFlag("--post-cursor-set")
+        ? SeededEvalSet.postCursorCases
+        : adherenceSet
+            ? SeededEvalSet.adherenceCases
+            : SeededEvalSet.cases
 if limit > 0 { cases = Array(cases.prefix(limit)) }
-let results = await EvalRunner.run(cases: cases, engine: engine, systemPrompt: systemPrompt, style: promptStyle)
+let results = await EvalRunner.run(
+    cases: cases,
+    engine: engine,
+    customInstruction: systemPrompt,
+    style: promptStyle,
+    length: evalLength,
+    examples: evalExamples
+)
 let summary = EvalSummary(results: results)
 
-print("engine: \(engineLabel)   prompt: \(promptStyle.rawValue)   cases: \(results.count)\n")
+print("engine: \(engineLabel)   prompt: \(promptStyle.rawValue)   cases: \(results.count)")
+print("suffix: \(promptStyle == .instruction ? "sent as after-cursor context" : "filtering only")")
+if !evalExamples.isEmpty {
+    print("inputs: examples=\(evalExamples.count) chars")
+}
+print()
 printTable(results)
 print()
 print(summary.scoreboardDescription)
 
 let qualityPassed = summary.passes(gates)
+// The adherence set measures one thing: no style/contamination violation. A
+// violation is not diluted by a valid-rate threshold, and the set is not run
+// through the general gate.
+let adherencePassed = !adherenceSet || summary.forbiddenOutputCount == 0
 print(String(repeating: "-", count: 32))
 print("gates: failures<=\(gates.maxFailures)  forbidden<=\(gates.maxForbiddenOutputs)  valid>=\(String(format: "%.0f%%", gates.minValidRate * 100))")
 print("valid rate: \(String(format: "%.1f%%", summary.validRate * 100))  \(qualityPassed ? "PASS" : "FAIL")")
+if adherenceSet {
+    print("adherence: violations==0  \(adherencePassed ? "PASS" : "FAIL")  (\(summary.forbiddenOutputCount) violating cases of \(summary.caseCount))")
+}
 
 // Aggregate engine throughput: real decode rate, robust to 0-token cases that
 // would otherwise drag a per-case median to 0.
@@ -200,7 +231,7 @@ let perfPassed = perfGates.passes(
 )
 // A run only passes overall when quality AND any required performance gates pass.
 // With no required perf gates (mock/openai) `perfPassed` is trivially true.
-let gatesPassed = qualityPassed && perfPassed
+let gatesPassed = qualityPassed && perfPassed && adherencePassed
 
 print("perf gates: \(perfGates.requirementsDescription)  \(perfPassed ? "PASS" : "FAIL")")
 if let tp = aggregateThroughput { print(String(format: "throughput: %.1f tok/s", tp)) }

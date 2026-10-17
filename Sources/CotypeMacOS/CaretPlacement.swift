@@ -57,6 +57,25 @@ public protocol InlineCaretGeometryProvider {
     func caretGeometry() -> CaretGeometry?
 }
 
+/// Bounds of the focused field without a caret. Used only by the explicit
+/// fallback preview, which anchors to the field's own bottom-left corner instead
+/// of guessing a caret position.
+public struct CaretFieldGeometry {
+    public var fieldBounds: CGRect
+    public var metrics: GhostTextMetrics
+
+    public init(fieldBounds: CGRect, metrics: GhostTextMetrics) {
+        self.fieldBounds = fieldBounds
+        self.metrics = metrics
+    }
+}
+
+/// An optional capability of a geometry provider: the focused field's bounds
+/// even when no caret rect can be resolved.
+public protocol InlineFieldGeometryProvider {
+    func fieldGeometry() -> CaretFieldGeometry?
+}
+
 /// The ordered caret-rect strategies the AX provider tries. The first strategy
 /// that produces bounds inside the focused field wins; when none does, the
 /// provider returns nil and the renderer hides. Nothing here guesses: every
@@ -91,7 +110,7 @@ enum CaretRectStrategy: String, CaseIterable, Sendable {
 /// Geometry is only ever read from the focused editor's own AX text. This never
 /// consults the mouse pointer, never guesses a frame from the window or a sibling
 /// element, and never falls back to a detached pane.
-public struct AXCaretGeometryProvider: InlineCaretGeometryProvider {
+public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldGeometryProvider {
     public init() {}
 
     /// How far up the AX tree the text-marker step looks for the element that
@@ -130,6 +149,20 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider {
         let metrics = range.flatMap { attributedFontMetrics(of: focused, range: $0) } ?? .default
 
         return CaretGeometry(caretRect: caretRect, fieldBounds: fieldBounds, metrics: metrics)
+    }
+
+    /// Field bounds and font for the opt-in fallback preview. This never invents
+    /// a caret: it returns only the focused element's real frame and the font of
+    /// its nearest readable text, or nil.
+    public func fieldGeometry() -> CaretFieldGeometry? {
+        guard AXIsProcessTrusted(),
+              let app = NSWorkspace.shared.frontmostApplication,
+              let focused = AXFocusedEditorResolver.resolve(in: app),
+              let fieldBounds = frameAttribute(of: focused)
+        else { return nil }
+        let metrics = selectedRange(of: focused)
+            .flatMap { attributedFontMetrics(of: focused, range: $0) } ?? .default
+        return CaretFieldGeometry(fieldBounds: fieldBounds, metrics: metrics)
     }
 
     /// The caret-rect ladder. Steps are closures so they are evaluated lazily:

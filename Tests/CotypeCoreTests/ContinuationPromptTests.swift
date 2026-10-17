@@ -72,7 +72,8 @@ final class ContinuationPromptTests: XCTestCase {
         XCTAssertEqual(continuation.continuation?.text, "Hello")
         let instruction = try await TemplatePromptBuilder(style: .instruction).buildPrompt(context: context)
         XCTAssertNil(instruction.continuation)
-        XCTAssertTrue(instruction.user.contains("Input: Hello"))
+        XCTAssertEqual(instruction.user, "Hello ", "the chat lane sends the raw prefix, not a template")
+        XCTAssertTrue(instruction.system.contains("inline autocomplete engine"))
     }
 
     // MARK: Boundary rules

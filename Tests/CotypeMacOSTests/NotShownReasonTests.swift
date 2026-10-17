@@ -77,6 +77,7 @@ final class NotShownReasonTests: XCTestCase {
             engineManager: manager,
             personalization: makePersonalizationStore("not-shown"),
             overrides: AppOverridesStore(fileURL: tempFileURL("not-shown-overrides")),
+            websiteRules: makeWebsiteRulesStore(),
             notShown: notShown,
             inserter: RecordingInserter(),
             renderer: renderer,
@@ -254,6 +255,7 @@ final class NotShownReasonTests: XCTestCase {
             engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: makePersonalizationStore("not-shown-none"),
             overrides: AppOverridesStore(fileURL: tempFileURL("not-shown-none-overrides")),
+            websiteRules: makeWebsiteRulesStore(),
             frontmostAppProvider: { Self.editor },
             userDefaults: defaults
         )

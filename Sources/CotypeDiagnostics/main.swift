@@ -199,6 +199,24 @@ func buildReport(_ args: Arguments) -> [String: Any] {
         "llama_license": appBundle.map { info($0, "CotypeLlamaLicense") } ?? "MIT",
     ]
 
+    // Completion policy. Read from the app's own preference domain, so the
+    // reported budget is the number its next request will carry.
+    let bundleID = (app["bundle_id"] as? String) ?? ""
+    let domain = bundleID.isEmpty ? "com.tristan.cotype" : bundleID
+    let appDefaults = UserDefaults(suiteName: domain) ?? .standard
+    let budget = TokenBudget.effective(appDefaults)
+    let budgetSource: String
+    switch budget.source {
+    case .automatic(let length): budgetSource = "auto (\(length.rawValue))"
+    case .explicitOverride: budgetSource = "custom"
+    }
+    report["completion"] = [
+        "token_budget": budget.tokens,
+        "token_budget_source": budgetSource,
+        "suggestion_length": SuggestionLength.current(appDefaults).rawValue,
+        "prompt_style": PromptStyle.current(appDefaults).rawValue,
+    ]
+
     // Permissions preflight (read-only).
     report["permissions"] = permissionReport().map {
         ["name": $0.name, "granted": $0.granted]
@@ -242,6 +260,11 @@ func renderText(_ report: [String: Any]) -> String {
         line("Engine")
         line("  llama.cpp   : \(engine["llama_build"] ?? "") (\(engine["llama_version"] ?? ""))")
         line("  license     : \(engine["llama_license"] ?? "")")
+    }
+    if let completion = report["completion"] as? [String: Any] {
+        line("Completion")
+        line("  token budget: \(completion["token_budget"] ?? "?") (\(completion["token_budget_source"] ?? "?"))")
+        line("  prompt style: \(completion["prompt_style"] ?? "?")")
     }
     if let model = report["model"] as? [String: Any] {
         line("Model")

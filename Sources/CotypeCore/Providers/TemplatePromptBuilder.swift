@@ -53,13 +53,56 @@ public enum AutocompletePrompt {
         return system + "\n\nAbout the author (use these exact details when the text calls for them, for example their own email address, name, or company):\n" + block
     }
 
+    /// The chat lane's system message: a strict continuation directive.
+    ///
+    /// Measured on 2026-10-17 against the old `Input:/Output:` few-shot system:
+    /// on code and prose prefixes this produced real continuations instead of
+    /// answers or echoed text (5/12 exact vs 3/12), and it obeyed a style note
+    /// appended as plain prose. The chat template separates the system role
+    /// (`/props` reports `supports_system_role = true`), so this is the supported
+    /// place for the author's instructions.
+    public static let chatSystem = """
+    You are an inline autocomplete engine. Continue the user's message with the next few words the author would type. Output ONLY the continuation: no quotes, no explanation, no markdown, no repetition of their text, and never answer or comment on it.
+    """
+
+    /// Compose the chat system message with the shared length directive and the
+    /// author's own style note. The continuation directive stays first so a
+    /// style request cannot turn the model into an answering assistant.
+    public static func chatSystem(length: SuggestionLength, customStyle: String) -> String {
+        var message = chatSystem + " " + length.chatDirective
+        let note = customStyle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !note.isEmpty {
+            message += "\n\nWriting style: " + note
+        }
+        return message
+    }
+
+    /// The one composition both the app and the eval use: the continuation
+    /// lane's system is unused boilerplate; the instruction lane gets the
+    /// continuation directive plus the author's style note.
+    public static func system(
+        for style: PromptStyle,
+        customInstruction: String,
+        length: SuggestionLength = .default
+    ) -> String {
+        switch style {
+        case .continuation: return defaultSystem
+        case .instruction: return chatSystem(length: length, customStyle: customInstruction)
+        }
+    }
+
     /// The user turn: the text before the caret, in the examples' scaffold.
+    /// Used by the continuation/chat fallback only; the instruction lane sends
+    /// the raw prefix so the model is not asked to fill a template.
     public static let defaultUser = "Input: {{prefix}}\nOutput:"
 
     /// Upper bounds on what a continuation document carries, so a long field
     /// or a busy window cannot crowd out the text nearest the caret.
     public static let continuationPrefixChars = 2000
     public static let continuationContextChars = 1200
+    /// The author's facts get their own bounded slice of the context budget, so
+    /// a long window context can never evict them.
+    public static let continuationFactsChars = 600
 
     /// The plain-text document an engine continues.
     ///
@@ -67,19 +110,47 @@ public enum AutocompletePrompt {
     /// `<context>` block ahead of the text; the text being written comes last so
     /// the model's next words continue it. Measured on the seeded gate set with
     /// gemma-4-E2B-it: 72% valid at ~140 ms median vs 38% for the chat prompt.
-    public static func continuation(prefix: String, facts: String = "", windowContext: String = "") -> ContinuationPrompt {
-        var background: [String] = []
-        let factLines = facts
+    ///
+    /// Writing instructions and learned examples are deliberately NOT sent in
+    /// this lane. The instruction-tuned model continues any prose it is given,
+    /// so a note or an `- input -> output` example becomes text to imitate:
+    /// measured on 2026-10-17, examples leaked their arrows into completions.
+    /// Instructions belong in the instruction lane's system message, where the
+    /// chat template separates roles. The default install therefore keeps the
+    /// measured prompt shape.
+    ///
+    /// The context block is budgeted per part, in priority order: the author's
+    /// facts first, then visible window text. A long window can never evict the
+    /// facts, and the total stays within `continuationContextChars`.
+    public static func continuation(
+        prefix: String,
+        facts: String = "",
+        windowContext: String = ""
+    ) -> ContinuationPrompt {
+        let factText = facts
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
             .prefix(40)
-        if !factLines.isEmpty { background.append(factLines.joined(separator: "\n")) }
-        let window = windowContext.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !window.isEmpty { background.append(window) }
+            .joined(separator: "\n")
+        let factBlock = String(factText.prefix(continuationFactsChars))
+
+        var background: [String] = []
+        if !factBlock.isEmpty { background.append(factBlock) }
+        let used = factBlock.count + (factBlock.isEmpty ? 0 : 1)
+        let windowLimit = max(0, continuationContextChars - used)
+        // Keep the tail of the window text, as the pre-budget behavior did: the
+        // text nearest the caret/most recent is at the end of the collected block.
+        let windowBlock = String(
+            windowContext
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .suffix(windowLimit)
+        )
+        if !windowBlock.isEmpty { background.append(windowBlock) }
+
         var head = ""
         if !background.isEmpty {
-            let block = String(background.joined(separator: "\n").suffix(continuationContextChars))
+            let block = background.joined(separator: "\n")
             head = "<context>\n\(neutralizingControlMarkers(block))\n</context>\n\n"
         }
         let bounded = String(prefix.suffix(continuationPrefixChars))
@@ -138,19 +209,21 @@ public struct TemplatePromptBuilder: PromptBuilder {
 
     public init(
         systemTemplate: String = AutocompletePrompt.defaultSystem,
-        userTemplate: String = AutocompletePrompt.defaultUser,
+        userTemplate: String? = nil,
         style: PromptStyle = .default,
         personalFacts: String = ""
     ) {
         self.systemTemplate = systemTemplate
         self.userTemplate = userTemplate
+            ?? (style == .instruction ? "{{prefix}}" : AutocompletePrompt.defaultUser)
         self.style = style
         self.personalFacts = personalFacts
     }
 
     public func buildPrompt(context: CompletionContext) async throws -> Prompt {
         let user: String
-        if userTemplate == AutocompletePrompt.defaultUser || userTemplate == "{{prefix}}",
+        if style == .continuation,
+           userTemplate == AutocompletePrompt.defaultUser || userTemplate == "{{prefix}}",
            let windowContext = context.extra["windowContext"],
            !windowContext.isEmpty {
             user = Self.contextualUserText(prefix: context.prefix, windowContext: windowContext)
@@ -158,6 +231,9 @@ public struct TemplatePromptBuilder: PromptBuilder {
             user = render(userTemplate, context: context)
         }
         var system = render(systemTemplate, context: context)
+        // Learned examples belong to the system channel. The continuation lane
+        // never transmits `system` (it sends `continuation` only), so this cannot
+        // leak into a plain-text prompt; the instruction lane does send it.
         if let summary = personalizationSummary?(), !summary.isEmpty {
             system += "\n\n\(summary)"
         }

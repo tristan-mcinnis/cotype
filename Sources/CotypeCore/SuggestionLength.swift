@@ -40,6 +40,17 @@ public enum SuggestionLength: String, CaseIterable, Codable, Sendable {
         }
     }
 
+    /// The length instruction the chat lane puts in its system message. Shared
+    /// so Short/Medium/Long never disagree between the continuation directive
+    /// and the word cap.
+    public var chatDirective: String {
+        switch self {
+        case .short: return "Use 1-3 words."
+        case .medium: return "Use 3-6 words."
+        case .long: return "Finish the current sentence, up to about 15 words."
+        }
+    }
+
     public var maxTokens: Int {
         switch self {
         case .short: return 16

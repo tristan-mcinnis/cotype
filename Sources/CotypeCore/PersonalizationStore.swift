@@ -237,6 +237,36 @@ public struct PersonalizationMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Content-free per-app counters, as read by the Statistics and Apps panes.
+/// Never carries typed text, completions, or window titles.
+public struct AppUsage: Equatable, Sendable, Identifiable {
+    public let appIdentifier: String
+    public let shown: Int
+    public let accepted: Int
+    public let dismissed: Int
+    public let canceled: Int
+    public let failed: Int
+
+    public init(
+        appIdentifier: String,
+        shown: Int = 0,
+        accepted: Int = 0,
+        dismissed: Int = 0,
+        canceled: Int = 0,
+        failed: Int = 0
+    ) {
+        self.appIdentifier = appIdentifier
+        self.shown = shown
+        self.accepted = accepted
+        self.dismissed = dismissed
+        self.canceled = canceled
+        self.failed = failed
+    }
+
+    public var id: String { appIdentifier }
+    public var total: Int { shown + accepted + dismissed + canceled + failed }
+}
+
 /// Append-only log of completion outcomes, plus content-free aggregate metrics.
 ///
 /// Content samples are persisted as newline-delimited JSON (injectable file URL
@@ -448,6 +478,29 @@ public final class PersonalizationStore: @unchecked Sendable {
                 canceled: metrics.canceled,
                 failed: metrics.failed
             )
+        }
+    }
+
+    /// Content-free per-app usage, newest counters first by total activity.
+    /// This is the source for Statistics and app discovery: it exists even when
+    /// content logging is off and no samples are stored.
+    public func perAppUsage() -> [AppUsage] {
+        queue.sync {
+            metrics.perApp
+                .map { app, counts in
+                    AppUsage(
+                        appIdentifier: app,
+                        shown: counts.shown,
+                        accepted: counts.accepted,
+                        dismissed: counts.dismissed,
+                        canceled: counts.canceled,
+                        failed: counts.failed
+                    )
+                }
+                .sorted {
+                    if $0.total != $1.total { return $0.total > $1.total }
+                    return $0.appIdentifier < $1.appIdentifier
+                }
         }
     }
 

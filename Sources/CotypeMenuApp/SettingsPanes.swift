@@ -997,7 +997,11 @@ struct GeneralPane: View {
     @AppStorage("systemPrompt") private var systemPrompt =
         AutocompletePrompt.defaultSystem
     @AppStorage("temperature") private var temperature = 0.0
-    @AppStorage("maxTokens") private var maxTokens = 64
+    @AppStorage(TokenBudget.modeKey) private var tokenMode = TokenBudget.Mode.auto.rawValue
+    @AppStorage(TokenBudget.explicitValueKey) private var explicitTokens = TokenBudget.explicitDefault
+    @AppStorage(PromptStyle.defaultsKey) private var promptStyle = PromptStyle.default.rawValue
+    @AppStorage(BatteryPolicy.pauseOnBatteryKey) private var pauseOnBattery = false
+    @AppStorage(BatteryPolicy.pauseInLowPowerModeKey) private var pauseInLowPowerMode = true
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
     @AppStorage(CompletionController.autoSuggestKey) private var autoSuggest = true
     @AppStorage(SuggestionLength.defaultsKey) private var suggestionLength = SuggestionLength.default.rawValue
@@ -1078,6 +1082,23 @@ struct GeneralPane: View {
                             RoundedRectangle(cornerRadius: House.Radius.sm, style: .continuous)
                                 .strokeBorder(House.ColorToken.stroke, lineWidth: House.hairline)
                         )
+                    SlateProse("Your own writing instructions. They are sent as the system message in the Instructions style only. The Continuation style keeps the measured plain-text prompt and does not send them; it continues any prose it is given.", tertiary: true)
+                    if promptStyle == PromptStyle.continuation.rawValue,
+                       systemPrompt != AutocompletePrompt.defaultSystem,
+                       !systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        SlateProse("Saved, but not sent in Continuation. Switch Prompt style to Instructions to apply it. Measured on this model (2026-10-17), Instructions is less accurate on general text than Continuation, so Continuation remains the default; see the README for the dated result.", tertiary: true)
+                    }
+                }
+                SlateDivider()
+                SlateRow(
+                    title: "Prompt style",
+                    detail: "Continuation keeps writing your text (the measured default). Instructions sends a continuation-only chat message plus your style note and any text after the cursor."
+                ) {
+                    SlateSegmented(
+                        options: PromptStyle.allCases.map { ($0.rawValue, $0 == .continuation ? "Continuation" : "Instructions") },
+                        selection: $promptStyle
+                    )
+                    .frame(width: 260)
                 }
                 SlateDivider()
                 SlateRow(title: "Temperature") {
@@ -1092,16 +1113,53 @@ struct GeneralPane: View {
                     }
                 }
                 SlateDivider()
-                SlateRow(title: "Max tokens") {
-                    Stepper("\(maxTokens)", value: $maxTokens, in: 16...1024, step: 16)
+                SlateRow(
+                    title: "Token budget",
+                    detail: tokenMode == TokenBudget.Mode.explicit.rawValue
+                        ? "Sent as max_tokens, clamped to \(TokenBudget.minimum)–\(TokenBudget.maximum)."
+                        : "Follows Suggestion length."
+                ) {
+                    SlateSegmented(
+                        options: [(TokenBudget.Mode.auto.rawValue, "Auto"), (TokenBudget.Mode.explicit.rawValue, "Custom")],
+                        selection: $tokenMode
+                    )
+                    .frame(width: 180)
+                }
+                if tokenMode == TokenBudget.Mode.explicit.rawValue {
+                    SlateDivider()
+                    SlateRow(title: "Max tokens") {
+                        Stepper("\(TokenBudget.clamped(explicitTokens))", value: $explicitTokens, in: TokenBudget.minimum...TokenBudget.maximum, step: 16)
+                            .font(House.TypeToken.meta)
+                            .foregroundStyle(House.ColorToken.textSecondary)
+                    }
+                }
+                SlateDivider()
+                SlateRow(title: "Effective per request", minHeight: 38) {
+                    Text(effectiveBudgetLabel)
                         .font(House.TypeToken.meta)
                         .foregroundStyle(House.ColorToken.textSecondary)
                 }
             }
 
+            SettingsCard(title: "Power", subtitle: "Automatic suggestions only; the trigger shortcut always works") {
+                SlateRow(
+                    title: "Pause automatic suggestions on battery",
+                    detail: "Manual trigger still generates."
+                ) {
+                    InkSwitch(isOn: $pauseOnBattery)
+                }
+                SlateDivider()
+                SlateRow(
+                    title: "Pause automatic suggestions in Low Power Mode",
+                    detail: "Low Power Mode already asks macOS to reduce background work."
+                ) {
+                    InkSwitch(isOn: $pauseInLowPowerMode)
+                }
+            }
+
             SettingsCard(title: "Note") {
                 SlateBlock {
-                    SlateProse("The system prompt applies to the next completion. Temperature and max tokens take effect the next time the model is (re)loaded.", tertiary: true)
+                    SlateProse("The system prompt and prompt style apply to the next completion. Temperature and the token budget take effect immediately for the daemon lane; the in-process model reloads with its own settings.", tertiary: true)
                 }
             }
         }
@@ -1109,11 +1167,25 @@ struct GeneralPane: View {
             reset.register("Reset to defaults") {
                 systemPrompt = AutocompletePrompt.defaultSystem
                 temperature = 0.0
-                maxTokens = 64
+                tokenMode = TokenBudget.Mode.auto.rawValue
+                explicitTokens = TokenBudget.explicitDefault
+                promptStyle = PromptStyle.default.rawValue
+                pauseOnBattery = false
+                pauseInLowPowerMode = true
                 appearance = AppearancePreference.dark.rawValue
                 AppearancePreference.applyCurrent()
             }
         }
+    }
+
+    /// The exact number the next request carries, from the same policy the
+    /// engines use.
+    private var effectiveBudgetLabel: String {
+        let length = SuggestionLength(rawValue: suggestionLength) ?? .default
+        if tokenMode == TokenBudget.Mode.explicit.rawValue {
+            return "\(TokenBudget.clamped(explicitTokens)) tokens (custom)"
+        }
+        return "\(length.maxTokens) tokens (auto · \(length.title))"
     }
 }
 
@@ -1168,6 +1240,7 @@ final class LaunchAtLoginModel: ObservableObject {
 struct ContextPane: View {
     @AppStorage("context.selectedText") private var contextSelectedText = true
     @AppStorage("context.windowTree") private var contextWindowTree = false
+    @AppStorage(GhostTextRenderer.fallbackPreviewKey) private var fallbackPreview = false
     @AppStorage(CompletionController.personalFactsKey) private var personalFacts = ""
 
     var body: some View {
@@ -1202,6 +1275,22 @@ struct ContextPane: View {
                 SlateDivider()
                 SlateRow(title: "Include selected text in custom prompt templates") {
                     InkSwitch(isOn: $contextSelectedText)
+                }
+                SlateDivider()
+                SlateRow(
+                    title: "Text after the cursor",
+                    detail: "Used to avoid duplicate insertions and to abstain inside a word. In the Instructions lane it is also sent as delimited after-cursor context; the Continuation lane does not send it."
+                ) {
+                    Text("Filtering")
+                        .font(House.TypeToken.meta)
+                        .foregroundStyle(House.ColorToken.textTertiary)
+                }
+                SlateDivider()
+                SlateRow(
+                    title: "Anchored preview when the caret is unknown",
+                    detail: "Off: no caret position means no preview. On: the suggestion is drawn once at the bottom-left of the focused field, still click-through, and still inserted only when you accept it."
+                ) {
+                    InkSwitch(isOn: $fallbackPreview)
                 }
                 SlateDivider()
                 UnavailableToggle("Clipboard", caption: "Not yet supported")
@@ -1265,7 +1354,7 @@ struct PersonalizationPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: House.Spacing.md) {
-            SettingsCard(title: "Learning") {
+            SettingsCard(title: "Learning", subtitle: "Accepted examples are used in the Instructions prompt style") {
                 SlateRow(title: "Learn from accepted and rejected completions") {
                     InkSwitch(isOn: $learnFromFeedback)
                 }
@@ -1556,16 +1645,19 @@ struct StatisticsPane: View {
                 }
             }
             NotShownCard(snapshot: NotShownStore.shared.snapshot)
-            SettingsCard(title: "Per app") {
+            SettingsCard(
+                title: "Per app",
+                subtitle: "Content-free counters; recorded even when feedback logging is off"
+            ) {
                 if perApp.isEmpty {
                     SlateBlock {
-                        SlateProse("No samples yet.", tertiary: true)
+                        SlateProse("No completion usage recorded for any app yet.", tertiary: true)
                     }
                 } else {
                     ForEach(Array(perApp.enumerated()), id: \.offset) { index, entry in
                         if index > 0 { SlateDivider() }
-                        SlateRow(title: appDisplayName(for: entry.app), minHeight: 38) {
-                            Text("\(entry.accepted) accepted · \(entry.dismissed) dismissed · \(entry.canceled) canceled")
+                        SlateRow(title: appDisplayName(for: entry.appIdentifier), minHeight: 38) {
+                            Text("\(entry.shown) shown · \(entry.accepted) accepted · \(entry.dismissed) dismissed · \(entry.canceled) canceled · \(entry.failed) failed")
                                 .font(House.TypeToken.meta)
                                 .foregroundStyle(House.ColorToken.textTertiary)
                         }
@@ -1577,17 +1669,8 @@ struct StatisticsPane: View {
         .onAppear { refresh += 1 }
     }
 
-    private func perAppBreakdown() -> [(app: String, accepted: Int, dismissed: Int, canceled: Int)] {
-        let all = store.samples()
-        let grouped = Dictionary(grouping: all, by: { $0.appIdentifier })
-        return grouped
-            .map { app, samples in
-                (app: app,
-                 accepted: samples.filter { $0.outcome == .accepted }.count,
-                 dismissed: samples.filter { $0.outcome == .dismissed }.count,
-                 canceled: samples.filter { $0.outcome == .canceled }.count)
-            }
-            .sorted { $0.accepted + $0.dismissed + $0.canceled > $1.accepted + $1.dismissed + $1.canceled }
+    private func perAppBreakdown() -> [AppUsage] {
+        store.perAppUsage()
     }
 }
 

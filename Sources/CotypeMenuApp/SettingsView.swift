@@ -120,6 +120,7 @@ struct SettingsView: View {
     @ObservedObject var completionController: CompletionController
     let personalization: PersonalizationStore
     let overrides: AppOverridesStore
+    let websiteRules: WebsiteRulesStore
     @ObservedObject var updater: SparkleUpdateController
 
     @State private var selection: SettingsSection
@@ -131,6 +132,7 @@ struct SettingsView: View {
         completionController: CompletionController,
         personalization: PersonalizationStore,
         overrides: AppOverridesStore,
+        websiteRules: WebsiteRulesStore = WebsiteRulesStore(),
         updater: SparkleUpdateController,
         initialSection: SettingsSection = .setup
     ) {
@@ -138,6 +140,7 @@ struct SettingsView: View {
         self.completionController = completionController
         self.personalization = personalization
         self.overrides = overrides
+        self.websiteRules = websiteRules
         self.updater = updater
         _selection = State(initialValue: initialSection)
     }
@@ -202,7 +205,11 @@ struct SettingsView: View {
         if selection == .appSettings {
             // App Settings needs a full-height split layout, so it is not wrapped
             // in the scrolling container that the other panes share.
-            AppSettingsPane(personalization: personalization, overrides: overrides)
+            AppSettingsPane(
+                personalization: personalization,
+                overrides: overrides,
+                websiteRules: websiteRules
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {

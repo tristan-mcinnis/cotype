@@ -16,7 +16,7 @@ final class ControllerInteractionTests: XCTestCase {
         engine: InferenceEngine,
         frontmostAppProvider: @escaping () -> String? = { "com.example.editor" },
         focusProvider: FocusIdentityProvider? = nil,
-        renderer: CompletionRenderer = GhostTextRenderer()
+        renderer: CompletionRenderer = GhostTextRenderer(geometryProvider: FixedCaretGeometry())
     ) -> (CompletionController, RecordingInserter) {
         let defaults = makeUserDefaults()
         defaults.set(true, forKey: "enableCompletions")
@@ -27,6 +27,7 @@ final class ControllerInteractionTests: XCTestCase {
             engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: personalization,
             overrides: overrides,
+            websiteRules: makeWebsiteRulesStore(),
             inserter: inserter,
             renderer: renderer,
             pipelineEngineOverride: engine,
@@ -235,6 +236,7 @@ final class ControllerInteractionTests: XCTestCase {
             engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: personalization,
             overrides: AppOverridesStore(fileURL: tempFileURL("hidden-overlay-overrides")),
+            websiteRules: makeWebsiteRulesStore(),
             inserter: RecordingInserter(),
             renderer: renderer,
             pipelineEngineOverride: MockInferenceEngine(response: "hello", wordDelayNanoseconds: 0),
@@ -299,6 +301,7 @@ final class ControllerInteractionTests: XCTestCase {
             engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: personalization,
             overrides: AppOverridesStore(fileURL: tempFileURL("visible-overlay-overrides")),
+            websiteRules: makeWebsiteRulesStore(),
             inserter: RecordingInserter(),
             renderer: renderer,
             pipelineEngineOverride: MockInferenceEngine(response: "hello world", wordDelayNanoseconds: 0),
@@ -413,7 +416,9 @@ final class ControllerInteractionTests: XCTestCase {
             engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: personalization,
             overrides: overrides,
+            websiteRules: makeWebsiteRulesStore(),
             inserter: inserter,
+            renderer: GhostTextRenderer(geometryProvider: FixedCaretGeometry()),
             pipelineEngineOverride: MockInferenceEngine(response: "one two three four", wordDelayNanoseconds: 0),
             frontmostAppProvider: { "com.example.editor" },
             focusIdentityProvider: StubFocusIdentityProvider(Self.stableFocus),
@@ -472,7 +477,9 @@ final class ControllerInteractionTests: XCTestCase {
             engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: makePersonalizationStore(),
             overrides: AppOverridesStore(fileURL: tempFileURL("overrides")),
+            websiteRules: makeWebsiteRulesStore(),
             inserter: inserter,
+            renderer: GhostTextRenderer(geometryProvider: FixedCaretGeometry()),
             pipelineEngineOverride: MockInferenceEngine(response: "one two", wordDelayNanoseconds: 0),
             frontmostAppProvider: { "com.example.editor" },
             focusIdentityProvider: provider,
@@ -507,7 +514,9 @@ final class ControllerInteractionTests: XCTestCase {
             engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: makePersonalizationStore(),
             overrides: AppOverridesStore(fileURL: tempFileURL("overrides")),
+            websiteRules: makeWebsiteRulesStore(),
             inserter: inserter,
+            renderer: GhostTextRenderer(geometryProvider: FixedCaretGeometry()),
             pipelineEngineOverride: MockInferenceEngine(response: "one two three", wordDelayNanoseconds: 0),
             frontmostAppProvider: { "com.example.editor" },
             focusIdentityProvider: provider,

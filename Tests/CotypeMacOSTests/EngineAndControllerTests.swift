@@ -446,7 +446,9 @@ final class CompletionControllerTests: XCTestCase {
             engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", verifier: AlwaysVerified(), engineFactory: { _ in MockClosableEngine() }),
             personalization: personalization,
             overrides: overrides,
+            websiteRules: makeWebsiteRulesStore(),
             inserter: inserter,
+            renderer: GhostTextRenderer(geometryProvider: FixedCaretGeometry()),
             pipelineEngineOverride: engine,
             frontmostAppProvider: frontmostAppProvider,
             focusIdentityProvider: StubFocusIdentityProvider(

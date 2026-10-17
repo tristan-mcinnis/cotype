@@ -32,18 +32,32 @@ public final class GhostTextRenderer: CompletionRenderer {
     /// Inline ghost text is unchanged by design: the editor's own font, no box.
     /// Only its alpha is a token — ink at 42 %.
     public static let ghostAlpha: CGFloat = 0.42
+    /// Explicit opt-in for the anchored fallback preview when caret geometry is
+    /// unavailable. Off by default: the normal promise is "inline at the caret
+    /// or nothing".
+    public static let fallbackPreviewKey = "context.fallbackPreview"
 
     let window: NSWindow
     let ghostContent: GhostContentView
     private let geometryProvider: InlineCaretGeometryProvider?
     private let maxLines: Int
+    /// Read at draw time so a Settings toggle applies to the next suggestion.
+    private let fallbackEnabled: () -> Bool
+
+    /// True when the visible ghost is the anchored fallback (no caret position).
+    /// Exposed for tests and for the accessibility description.
+    public private(set) var isFallbackPreview = false
 
     public init(
         geometryProvider: InlineCaretGeometryProvider? = AXCaretGeometryProvider(),
-        maxLines: Int = 3
+        maxLines: Int = 3,
+        fallbackEnabled: @escaping () -> Bool = {
+            UserDefaults.standard.object(forKey: GhostTextRenderer.fallbackPreviewKey) as? Bool ?? false
+        }
     ) {
         self.geometryProvider = geometryProvider
         self.maxLines = maxLines
+        self.fallbackEnabled = fallbackEnabled
         ghostContent = GhostContentView()
 
         window = NSWindow(
@@ -156,6 +170,7 @@ public final class GhostTextRenderer: CompletionRenderer {
 
     /// Order the overlay out only when it is actually on screen.
     private func hideWindow() {
+        isFallbackPreview = false
         guard window.isVisible else { return }
         window.orderOut(nil)
     }
@@ -163,17 +178,85 @@ public final class GhostTextRenderer: CompletionRenderer {
     // MARK: - Main-thread UI
 
     func show(candidate: String) {
-        // Inline ghost text at the caret is the only thing Cotype draws. When
-        // exact caret geometry is unavailable (laggy web/Electron editors,
-        // terminals without `kAXBoundsForRange`) there is no correct place to
-        // draw, so this fails closed: hide, never show a pane or guess an anchor.
+        // Inline ghost text at the caret is the only thing Cotype draws by
+        // default. When exact caret geometry is unavailable (laggy web/Electron
+        // editors, terminals without `kAXBoundsForRange`) there is no correct
+        // place to draw, so this fails closed: hide, never show a pane or guess
+        // an anchor. The opt-in fallback anchors to the focused field's own
+        // bottom-left corner and is still inert, click-through ghost text.
         guard let geometry = geometryProvider?.caretGeometry() else {
+            if fallbackEnabled(), let field = (geometryProvider as? InlineFieldGeometryProvider)?.fieldGeometry() {
+                showFallback(candidate: candidate, field: field)
+                return
+            }
             CotypeLog.geometry.info("hide: no usable caret geometry")
             MainActor.assumeIsolated { onNotShown?(.noCaretGeometry) }
+            isFallbackPreview = false
             hideWindow()
             return
         }
+        isFallbackPreview = false
         showInline(candidate: candidate, geometry: geometry)
+    }
+
+    /// Draw the candidate at a fixed anchor inside the focused field: the
+    /// bottom-left of the field's real AX frame. Clearly inside the field the
+    /// text will land in, never at the mouse, never in a detached pane. One line,
+    /// clipped by the same layout rules as the inline ghost.
+    private func showFallback(candidate: String, field: CaretFieldGeometry) {
+        let metrics = field.metrics
+        let lineHeight = max(metrics.lineHeight, 1)
+        // Fail closed when the field cannot contain one line plus the 2 pt inset:
+        // anchoring at the bottom would otherwise draw above the field.
+        guard field.fieldBounds.height >= lineHeight + 4,
+              field.fieldBounds.width > 4 else {
+            CotypeLog.geometry.info("hide: fallback ghost does not fit the field")
+            MainActor.assumeIsolated { onNotShown?(.ghostDoesNotFit) }
+            isFallbackPreview = false
+            hideWindow()
+            return
+        }
+        let anchor = CGRect(
+            x: field.fieldBounds.minX + 2,
+            y: field.fieldBounds.maxY - lineHeight - 2,
+            width: 0,
+            height: lineHeight
+        )
+        let measure: (String) -> CGFloat = { text in
+            (text as NSString).size(withAttributes: [.font: metrics.font]).width
+        }
+        let layout = InlineGhostLayout.layout(
+            caretRect: anchor,
+            fieldBounds: field.fieldBounds,
+            metrics: metrics,
+            maxLines: 1,
+            candidate: candidate,
+            measure: measure
+        )
+        guard !layout.lines.isEmpty else {
+            CotypeLog.geometry.info("hide: fallback ghost does not fit the field")
+            MainActor.assumeIsolated { onNotShown?(.ghostDoesNotFit) }
+            isFallbackPreview = false
+            hideWindow()
+            return
+        }
+
+        if window.contentView !== ghostContent {
+            window.contentView = ghostContent
+        }
+        ghostContent.lines = layout.lines.map { ($0.text, $0.xOffset) }
+        ghostContent.metrics = metrics
+        ghostContent.setAccessibilityValue(candidate)
+        ghostContent.setAccessibilityHelp("Anchored completion preview: no caret position was available; Cotype will insert this at the caret.")
+        ghostContent.needsDisplay = true
+        isFallbackPreview = true
+
+        let appKitOrigin = CaretPlacement.toAppKitWindowOrigin(
+            axTopLeft: layout.origin,
+            size: layout.size,
+            primaryScreenHeight: primaryScreenHeight()
+        )
+        applyOverlayFrame(NSRect(origin: appKitOrigin, size: layout.size))
     }
 
     /// Draw the candidate as inline ghost text at the exact AX caret geometry.
@@ -205,6 +288,7 @@ public final class GhostTextRenderer: CompletionRenderer {
         ghostContent.lines = layout.lines.map { ($0.text, $0.xOffset) }
         ghostContent.metrics = metrics
         ghostContent.setAccessibilityValue(candidate)
+        ghostContent.setAccessibilityHelp("The completion Cotype would insert with the accept key.")
         ghostContent.needsDisplay = true
 
         // Convert the block's AX top-left origin to an AppKit window origin.

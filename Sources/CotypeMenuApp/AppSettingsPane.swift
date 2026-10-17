@@ -14,9 +14,15 @@ struct AppSettingsPane: View {
     @StateObject private var model: AppSettingsModel
     @State private var draftPrompt = ""
     @EnvironmentObject private var reset: SettingsResetCoordinator
+    private let websiteRules: WebsiteRulesStore
 
-    init(personalization: PersonalizationStore, overrides: AppOverridesStore) {
+    init(
+        personalization: PersonalizationStore,
+        overrides: AppOverridesStore,
+        websiteRules: WebsiteRulesStore = WebsiteRulesStore()
+    ) {
         _model = StateObject(wrappedValue: AppSettingsModel(store: overrides, personalization: personalization))
+        self.websiteRules = websiteRules
     }
 
     var body: some View {
@@ -91,7 +97,7 @@ struct AppSettingsPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: House.Spacing.md) {
                 SettingsCard(title: entry.displayName, subtitle: entry.bundleID) {
-                    StatRow(title: "Completion samples", value: "\(entry.count)")
+                    StatRow(title: "Usage events (content-free)", value: "\(entry.count)")
                 }
 
                 if entry.isBuiltInSensitive {
@@ -127,7 +133,7 @@ struct AppSettingsPane: View {
                         }
                     }
                 } else {
-                    SettingsCard(title: "System prompt override") {
+                    SettingsCard(title: "System prompt override", subtitle: "Applies in the Instructions prompt style") {
                         SlateBlock {
                             TextEditor(text: $draftPrompt)
                                 .font(House.TypeToken.code)
@@ -151,6 +157,10 @@ struct AppSettingsPane: View {
                             .buttonStyle(HouseChipButtonStyle())
                         }
                     }
+                }
+
+                if AppCompatibility.isBrowser(entry.bundleID) && !entry.isBuiltInSensitive {
+                    WebsiteRulesCard(store: websiteRules)
                 }
 
                 SettingsCard(title: "Note") {
@@ -303,9 +313,11 @@ final class AppSettingsModel: ObservableObject {
     }
 
     func reload() {
-        let samples = personalization.samples()
+        // Counts come from the content-free metrics, so app discovery and its
+        // numbers work with content logging off and zero stored samples.
+        let usage = personalization.perAppUsage()
         var counts: [String: Int] = [:]
-        for sample in samples { counts[sample.appIdentifier, default: 0] += 1 }
+        for entry in usage { counts[entry.appIdentifier] = entry.total }
 
         var bundleIDs = Set(counts.keys)
         bundleIDs.insert(AppOverridesStore.defaultKey)
@@ -355,4 +367,191 @@ final class AppSettingsModel: ObservableObject {
         reload()
     }
 
+}
+
+// MARK: - Website rules
+
+/// Testable state for the Website Rules card. Mirrors `AppSettingsModel`: the
+/// store is not observable, so mutations reload a computed snapshot.
+@MainActor
+final class WebsiteRulesModel: ObservableObject {
+    struct Entry: Identifiable, Equatable {
+        let host: String
+        let enabled: Bool
+        let instructions: String?
+        var id: String { host }
+    }
+
+    @Published private(set) var entries: [Entry] = []
+    private let store: WebsiteRulesStore
+
+    init(store: WebsiteRulesStore) {
+        self.store = store
+        reload()
+    }
+
+    func reload() {
+        entries = store.allKeys()
+            .compactMap { key -> Entry? in
+                guard let rule = store.rawRule(for: key) else { return nil }
+                return Entry(host: key, enabled: rule.enabled ?? true, instructions: rule.systemPrompt)
+            }
+            .sorted { $0.host < $1.host }
+    }
+
+    /// Add (or re-enable) a site. Returns false when the host cannot be a
+    /// trustworthy website identity, so a mistyped entry never becomes a rule.
+    @discardableResult
+    func add(host rawHost: String) -> Bool {
+        guard let host = WebsiteDomain.normalizedHost(rawHost) else { return false }
+        let base = store.rawRule(for: host) ?? WebsiteRule()
+        store.setRule(WebsiteRule(enabled: base.enabled ?? true, systemPrompt: base.systemPrompt), forHost: host)
+        reload()
+        return true
+    }
+
+    func setEnabled(_ host: String, _ enabled: Bool) {
+        let base = store.rawRule(for: host) ?? WebsiteRule()
+        store.setRule(WebsiteRule(enabled: enabled, systemPrompt: base.systemPrompt), forHost: host)
+        reload()
+    }
+
+    /// Save the site's own instructions. Whitespace-only clears them, and the
+    /// stored value is always trimmed. `enabled` is preserved either way.
+    func setInstructions(_ host: String, _ text: String) {
+        let base = store.rawRule(for: host) ?? WebsiteRule(enabled: true)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        store.setRule(
+            WebsiteRule(enabled: base.enabled, systemPrompt: trimmed.isEmpty ? nil : trimmed),
+            forHost: host
+        )
+        reload()
+    }
+
+    func instructions(for host: String) -> String {
+        entries.first(where: { $0.host == host })?.instructions ?? ""
+    }
+
+    func remove(_ host: String) {
+        store.removeRule(forHost: host)
+        reload()
+    }
+}
+
+/// Per-website controls for a browser. A rule is read only when the focused
+/// window proves its host; an unknown or ambiguous identity leaves the app
+/// setting in force, so nothing here can broaden permission by accident.
+private struct WebsiteRulesCard: View {
+    @StateObject private var model: WebsiteRulesModel
+    @State private var newHost = ""
+    @State private var addError: String?
+    @State private var editingHost: String?
+    @State private var draftInstructions = ""
+
+    init(store: WebsiteRulesStore) {
+        _model = StateObject(wrappedValue: WebsiteRulesModel(store: store))
+    }
+
+    var body: some View {
+        SettingsCard(
+            title: "Websites",
+            subtitle: "Applies only when the focused browser window reports a trustworthy http(s) host"
+        ) {
+            if model.entries.isEmpty {
+                SlateBlock {
+                    SlateProse("No website rules yet. Without one, the app setting above applies to every site in this browser.", tertiary: true)
+                }
+            } else {
+                ForEach(Array(model.entries.enumerated()), id: \.offset) { index, entry in
+                    if index > 0 { SlateDivider() }
+                    SlateRow(title: entry.host) {
+                        HStack(spacing: House.Spacing.xs) {
+                            if entry.instructions?.isEmpty == false {
+                                StatusDot(tint: House.ColorToken.success)
+                                    .accessibilityLabel("Has instructions")
+                            }
+                            InkSwitch(isOn: Binding(
+                                get: { entry.enabled },
+                                set: { model.setEnabled(entry.host, $0) }
+                            ))
+                            Button(editingHost == entry.host ? "Close" : "Instructions") {
+                                toggleEditor(entry)
+                            }
+                            .buttonStyle(HouseChipButtonStyle())
+                            Button("Remove") { remove(entry.host) }
+                                .buttonStyle(HouseChipButtonStyle(destructive: true))
+                        }
+                    }
+                    if editingHost == entry.host {
+                        SlateDivider()
+                        SlateBlock {
+                            SlateProse("Instructions for \(entry.host). Sent as the system message in the Instructions prompt style, and only while this host is the trusted foreground identity. The Continuation style does not send them.", tertiary: true)
+                            TextEditor(text: $draftInstructions)
+                                .font(House.TypeToken.code)
+                                .scrollContentBackground(.hidden)
+                                .frame(minHeight: 80, maxHeight: 160)
+                                .padding(House.Spacing.xs)
+                                .background(
+                                    RoundedRectangle(cornerRadius: House.Radius.sm, style: .continuous)
+                                        .fill(House.ColorToken.well)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: House.Radius.sm, style: .continuous)
+                                        .strokeBorder(House.ColorToken.stroke, lineWidth: House.hairline)
+                                )
+                            HStack(spacing: House.Spacing.xs) {
+                                Button("Save") { saveInstructions(entry.host) }
+                                    .buttonStyle(HouseChipButtonStyle())
+                                Button("Clear") {
+                                    draftInstructions = ""
+                                    model.setInstructions(entry.host, "")
+                                }
+                                .buttonStyle(HouseChipButtonStyle())
+                            }
+                        }
+                    }
+                }
+            }
+
+            SlateDivider()
+            SlateRow(title: "Add a website", detail: addError) {
+                HStack(spacing: House.Spacing.xs) {
+                    TextField("example.com", text: $newHost)
+                        .textFieldStyle(.plain)
+                        .font(House.TypeToken.meta)
+                        .frame(width: 180)
+                    Button("Add") { add() }
+                        .buttonStyle(HouseChipButtonStyle())
+                }
+            }
+        }
+    }
+
+    private func toggleEditor(_ entry: WebsiteRulesModel.Entry) {
+        if editingHost == entry.host {
+            editingHost = nil
+            return
+        }
+        editingHost = entry.host
+        draftInstructions = entry.instructions ?? ""
+    }
+
+    private func saveInstructions(_ host: String) {
+        model.setInstructions(host, draftInstructions)
+        draftInstructions = model.instructions(for: host)
+    }
+
+    private func add() {
+        guard model.add(host: newHost) else {
+            addError = "That is not a website host. Use a name like example.com."
+            return
+        }
+        newHost = ""
+        addError = nil
+    }
+
+    private func remove(_ host: String) {
+        if editingHost == host { editingHost = nil }
+        model.remove(host)
+    }
 }

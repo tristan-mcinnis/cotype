@@ -50,6 +50,7 @@ final class DaemonRoutedEngineTests: XCTestCase {
     func testDaemonEngineThreadsGenerationSettingsFromDefaults() {
         let defaults = makeDefaults()
         defaults.set(true, forKey: DaemonRoutedEngine.enabledKey)
+        defaults.set(TokenBudget.Mode.explicit.rawValue, forKey: TokenBudget.modeKey)
         defaults.set(48, forKey: DaemonRoutedEngine.maxTokensKey)
         defaults.set(0.25, forKey: DaemonRoutedEngine.temperatureKey)
         let engine = DaemonRoutedEngine.daemonEngine(defaults: defaults)
@@ -68,10 +69,22 @@ final class DaemonRoutedEngineTests: XCTestCase {
     func testDaemonEngineClampsOutOfRangeGenerationSettings() {
         let defaults = makeDefaults()
         defaults.set(true, forKey: DaemonRoutedEngine.enabledKey)
+        defaults.set(TokenBudget.Mode.explicit.rawValue, forKey: TokenBudget.modeKey)
         defaults.set(100_000, forKey: DaemonRoutedEngine.maxTokensKey)
         defaults.set(9.0, forKey: DaemonRoutedEngine.temperatureKey)
         let engine = DaemonRoutedEngine.daemonEngine(defaults: defaults)
         XCTAssertEqual(engine?.maxTokens, OpenAICompatibleEngine.maxAllowedTokens)
         XCTAssertEqual(engine?.temperature, OpenAICompatibleEngine.maxTemperature)
+    }
+
+    /// A stored budget left behind by an older build is not trusted in Auto
+    /// mode: the suggestion length is the effective policy.
+    func testStoredBudgetIsIgnoredInAutoMode() {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: DaemonRoutedEngine.enabledKey)
+        defaults.set(64, forKey: DaemonRoutedEngine.maxTokensKey)
+        defaults.set(SuggestionLength.short.rawValue, forKey: SuggestionLength.defaultsKey)
+        let engine = DaemonRoutedEngine.daemonEngine(defaults: defaults)
+        XCTAssertEqual(engine?.maxTokens, SuggestionLength.short.maxTokens)
     }
 }
