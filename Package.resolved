@@ -1,6 +1,15 @@
 {
-  "originHash" : "c5a8a2ce39eec0313684811179c22f87776e241b53987438d8822448ad2ccd96",
+  "originHash" : "4bda3fa5f32af265d5cfe017da4f5feca8a0f0f14107a7b0569022e0aeb4ca45",
   "pins" : [
+    {
+      "identity" : "design-system",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tristan-mcinnis/design-system",
+      "state" : {
+        "revision" : "03dc7dfdf369641f19107478fae62dee9f904878",
+        "version" : "1.0.0"
+      }
+    },
     {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
