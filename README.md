@@ -84,30 +84,55 @@ permission state.
 - Use the Cotype menu-bar icon to trigger or cancel a completion and open
   Settings. Use the Local Models menu-bar icon to load or unload `gemma-it`.
 
-Inference streams from the shared model. The prompt is plain-text
-continuation (`/v1/completions`): Cotype sends the text before the caret (plus
-a short context block with your facts and visible window text) and the model
-keeps writing it, stopping at the end of the line or sentence. A trailing space
+Inference streams from the shared model. The default prompt is plain-text
+continuation (`/v1/completions`): Cotype sends the text before the caret plus a
+short context block with your facts and, if you turn it on, visible window text,
+and the model keeps writing it, stopping at the end of the line or sentence. An
+untouched install sends exactly the text before the caret. Raw writing notes and
+learned `input → output` examples are deliberately not sent in this lane: the
+model continues them as prose (measured: the example arrows leaked into
+completions). A trailing space
 is token-healed so the model never starts from a lone space token. If
 `gemma-it` is cold, Cotype asks Local Models to load it (non-blocking) and says
 so; while you type it refreshes the daemon's idle clock every 10 minutes so
 the model is not unloaded mid-day. It never loads a private fallback copy. The
-older chat prompt stays available with `defaults write com.tristan.cotype
-promptStyle instruction`.
+older chat prompt stays available as the General pane's **Instructions**
+prompt style. That lane carries your custom writing instructions and learned
+examples as the system message and sends text after the cursor as delimited
+context. Its system message is a strict continuation directive followed by your
+writing-style note, and the user turn is the raw text (no `Input:/Output:`
+scaffold), so it continues rather than answers. Measured on `gemma-it`: it is
+less accurate on the general seeded set than Continuation (2026-10-17 daemon
+run: 12/29 vs 22/29; the legacy Input/Output chat lane scored 11/29), so
+Continuation stays the default. On held-out personal-writing cases with a style
+request, the instruction lane followed it in 8/8 cases (0 violations) while the
+same lane without the note violated it in 2/8; no scaffold, arrow or example text
+appeared in any output. On text after the cursor the two lanes were close but
+not equal: 3/8 valid for Continuation vs 2/8 for Instructions, both without
+forbidden output.
 
 ## Settings
 
-The native preferences window follows the supplied Cotypist references, with
-Setup, General, Context, Personalization, Shortcuts, App Settings, Statistics,
-About, and Support sections. Working controls persist. Unsupported
+The native preferences window has Setup, General, Context, Personalization,
+Shortcuts, App Settings, Statistics, Privacy & Data, About, and Support
+sections. Working controls persist. Unsupported
 clipboard/screenshot context controls are explicitly marked unavailable rather
-than presented as fake paid features. Placeholder Emoji, Battery, and Cotype
-Labs sections are absent from the stable build so no unavailable control is
+than presented as fake paid features. Placeholder Emoji and Cotype Labs
+sections are absent from the stable build so no unavailable control is
 advertised as a roadmap feature.
 
 General settings include a real Launch at Login registration, menu-bar
-visibility, global system prompt, temperature, and completion token limit.
-App Settings supports per-app enable/disable and system-prompt overrides.
+visibility, a global system prompt, the prompt style, temperature, one token
+budget (Auto follows Suggestion length; Custom is clamped to 16-256 tokens and
+the pane shows the exact number sent), and a power policy that can pause
+automatic suggestions on battery or in Low Power Mode. The trigger shortcut
+always works.
+
+App Settings supports per-app enable/disable and prompt overrides. For browsers
+it also holds per-website rules. A rule applies only when the focused window
+reports one trustworthy `http(s)` host; an unknown or ambiguous host leaves the
+app setting in force, and navigating to a different site before you accept
+cancels the pending suggestion.
 
 ## Architecture
 
@@ -174,6 +199,11 @@ The eval scoreboard covers Swift, Python, TypeScript, Go, prose, Markdown, and
 contextual infill. It reports exact/prefix/token-F1 quality plus average and
 median end-to-end generation latency. Model load time remains visible in the
 command runtime.
+
+Eval-harness caveat: `cotype-eval` caps suggestions at 4 words
+(`CompletionPipeline.maxWords` default), while the app applies the Suggestion
+length setting (3 / 6 / 16 words). The seeded scoreboard therefore measures the
+prompt and model, not the app's full length cap.
 
 ## CI
 

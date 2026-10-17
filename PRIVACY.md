@@ -22,6 +22,11 @@ how it behaves on the network. It reflects the current implementation.
   fields are excluded, secure/protected subtrees are skipped, and the bounded
   window context exists only in memory for the current prompt: it is never
   written to feedback samples, metrics, logs, or exports.
+- In a browser, and only to look up a website rule, Cotype reads the focused
+  window's Accessibility document URL and keeps only its host. It reads no page
+  text beyond what the normal focused-editor read already covers, keeps no
+  history, and treats an unreadable or contradictory URL as unknown (the app
+  setting then applies).
 - Cotype also captures a short, non-content **identity fingerprint** of the
   focused element and its window, the caret/selection range, and the app's
   bundle identifier. Immediately before rendering or insertion, it uses this
@@ -103,9 +108,9 @@ Privacy & Data (off by default). They are newline-delimited and versioned
 
 Content-free counts of shown / accepted / dismissed / canceled / failed
 completions. These carry **no prefix and no completion text** and are always
-kept — even when content logging is off — so the usage summary reflects real
-usage without persisting any sensitive content. Counters are bounded (a fixed
-number of distinct apps is tracked) and versioned.
+kept — even when content logging is off — so the usage summary and the per-app
+list in Statistics reflect real usage without persisting any sensitive content.
+Counters are bounded (a fixed number of distinct apps is tracked) and versioned.
 
 ### Not-shown reasons — `not-shown.json`
 
@@ -124,7 +129,16 @@ Retention choice and your excluded-app list. This is not content; it survives
 Per-app enable/disable choices and system-prompt overrides. This file can
 contain instructions you write for a specific app.
 
-Cotype restricts all five privacy-data files above to the current macOS account
+### Website rules — `website-rules.json`
+
+Per-website enable/disable choices and optional instructions. Keys are
+normalised hosts (for example `example.com`), never page text or URLs with a
+path. A rule is read only when the focused browser window exposes one
+unambiguous `http(s)` document URL through Accessibility; otherwise the
+per-app setting applies. Cotype does not read the address bar with OCR or keep
+a browsing history.
+
+Cotype restricts all six privacy-data files above to the current macOS account
 (owner read/write only, POSIX mode `0600`).
 
 ## Retention
@@ -144,7 +158,7 @@ can back them up or inspect them.
 
 Privacy & Data → **Delete All Data** permanently removes every content sample
 and resets the usage counters, then verifies the files are empty. It does not
-reset your retention/exclusion preferences.
+reset your retention/exclusion preferences, app overrides or website rules.
 
 ## Network behavior
 
@@ -155,6 +169,9 @@ reset your retention/exclusion preferences.
   editor content does not leave this Mac.
 - Cotype has no analytics or telemetry and makes no internet request containing
   editor, completion, clipboard, or personalization content.
+- The battery and Low Power Mode policy only stops Cotype from starting
+  automatic generations. It sends nothing, reads no new data, and never unloads
+  or restarts the shared Local Models daemon.
 - Local Models owns normal model acquisition. A model download from Cotype occurs
   only if you explicitly select the legacy standalone lane and start it in Setup;
   Cotype verifies that file's SHA-256 digest locally before use.
