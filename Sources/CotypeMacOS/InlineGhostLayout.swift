@@ -8,8 +8,13 @@ import AppKit
 /// Derived from the focused editor's AX attributed string where the host exposes
 /// one, so the ghost text uses the same font (and therefore the same line height
 /// and baseline) as the text already on screen. When an editor exposes no font
-/// (many web/Electron text fields), `.default` supplies a stable monospaced
+/// (many web/Electron text fields), `.default` supplies a stable proportional
 /// metric set so the renderer still has a predictable, non-thrashing layout.
+///
+/// The numbers are AppKit's own, not invented: the line box is
+/// `NSLayoutManager.defaultLineHeight(for:)` and the baseline sits one descent
+/// above the bottom of that box, which is where the typesetter puts it (measured
+/// for Helvetica 12: box 14, baseline 11; 18: box 22, baseline 18).
 public struct GhostTextMetrics: Equatable {
     /// The font the ghost text is drawn with.
     public var font: NSFont
@@ -17,29 +22,86 @@ public struct GhostTextMetrics: Equatable {
     public var ascent: CGFloat
     /// Baseline-to-bottom distance (positive).
     public var descent: CGFloat
-    /// Extra leading between lines.
+    /// Extra leading between lines (zero for AppKit's default line box).
     public var leading: CGFloat
-    /// Height of a single text line.
+    /// Height of a single line box, and the pitch between ghost lines.
     public var lineHeight: CGFloat
+    /// Distance from the top of the line box to the glyph baseline.
+    ///
+    /// Distinct from `ascent` only by sub-point rounding: the typesetter rounds
+    /// the baseline to a whole point, so this is the value the drawing uses.
+    public var baselineOffset: CGFloat
+
+    /// Where `NSString.draw(at:)` puts the baseline for this font, measured from
+    /// the draw point. Stored because it never changes for a given font.
+    private let textBaseline: CGFloat
 
     public init(font: NSFont) {
+        let lineBox = max(NSLayoutManager().defaultLineHeight(for: font), 1)
         self.font = font
-        self.ascent = font.ascender
+        self.lineHeight = lineBox
         self.descent = abs(font.descender)
-        self.leading = font.leading
-        // Round each component up so a line box is never taller than the sum of
-        // its parts but always fits the glyphs, matching how AppKit lays text out.
-        self.lineHeight = max(
-            ceil(font.ascender) + ceil(abs(font.descender)) + font.leading,
-            font.pointSize
-        )
+        self.ascent = max(lineBox - abs(font.descender), 0)
+        self.leading = max(lineBox - self.ascent - self.descent, 0)
+        self.textBaseline = lineBox - abs(font.descender)
+        self.baselineOffset = Self.baselineOffset(forLineBox: lineBox, font: font)
     }
 
-    /// Stable fallback used when the focused editor exposes no font. A fixed size
-    /// keeps the layout non-thrashing across streams (a freshly measured font per
-    /// token would otherwise jitter the ghost width on every partial token).
+    /// Align the ghost's line box to the editor's own measured line box, so the
+    /// ghost's baseline matches the text under the caret and its wrapped lines use
+    /// the document's line pitch instead of the fallback font's.
+    ///
+    /// `measured` is the caret rect's height, which every editor reports as its
+    /// line box (a zero-width caret spans exactly one line). It is only trusted
+    /// inside a plausible band around the resolved font's own line box: a caret
+    /// rect that is much shorter or taller is a selection spanning lines, a whole
+    /// field, or a broken value, and then the font metrics are kept as-is.
+    public func aligningLineBox(toMeasuredHeight measured: CGFloat) -> GhostTextMetrics {
+        guard measured.isFinite, measured > 0,
+              measured >= lineHeight * Self.minimumMeasuredLineBoxRatio,
+              measured <= lineHeight * Self.maximumMeasuredLineBoxRatio
+        else { return self }
+        var aligned = self
+        aligned.lineHeight = measured
+        aligned.baselineOffset = Self.baselineOffset(forLineBox: measured, font: font)
+        // Ascent/descent stay the font's own: they are only reported, never drawn.
+        return aligned
+    }
+
+    /// A measured line box below this fraction of the font's own box is a
+    /// mis-read; above the maximum it is a multi-line selection or a field.
+    static let minimumMeasuredLineBoxRatio: CGFloat = 0.6
+    static let maximumMeasuredLineBoxRatio: CGFloat = 1.8
+
+    /// The baseline the typesetter would use in a line box of `height` for this
+    /// font: one descent above the box bottom, rounded to a whole point. A box
+    /// taller than the font's own (paragraph/line spacing) keeps the baseline where
+    /// the font puts it, because AppKit adds that space below the line.
+    static func baselineOffset(forLineBox height: CGFloat, font: NSFont) -> CGFloat {
+        let defaultBox = max(NSLayoutManager().defaultLineHeight(for: font), 1)
+        let descent = abs(font.descender)
+        // Extra height above the font's own box is spacing below the line, so the
+        // baseline does not move down with it; a shorter box pulls it up.
+        let box = height >= defaultBox ? defaultBox : height
+        return max((box - descent).rounded(), 0)
+    }
+
+    /// Vertical offset to add to a line-box top before drawing, so the rendered
+    /// baseline lands at `baselineOffset` even when the line box was re-measured
+    /// from the editor.
+    public var baselineDrawOffset: CGFloat {
+        baselineOffset - textBaseline
+    }
+
+    /// Stable fallback used when the focused editor exposes no font. A fixed font
+    /// and size keep the layout non-thrashing across streams (a freshly measured
+    /// font per token would otherwise jitter the ghost width on every partial
+    /// token). It is proportional on purpose: an unknown editor font is far more
+    /// likely to be a UI text face than a code face, and a monospaced ghost is
+    /// visibly too wide in prose (measured at 1.7x the document text in TextEdit).
+    /// Terminals pass their own monospaced metrics explicitly.
     public static var `default`: GhostTextMetrics {
-        GhostTextMetrics(font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular))
+        GhostTextMetrics(font: NSFont.systemFont(ofSize: 13))
     }
 }
 
@@ -50,8 +112,8 @@ public struct GhostTextMetrics: Equatable {
 /// as a continuation of the editor's own text at the insertion point:
 ///
 /// - the first line begins at the caret's x position,
-/// - overflowing words wrap to subsequent lines that align to the field's leading
-///   edge (the natural continuation of a wrapped editor line),
+/// - overflowing words wrap to subsequent lines that align to the editor's text
+///   column (the natural continuation of a wrapped editor line),
 /// - the block is clipped to `maxLines`, signalling the clip with `wasClipped`,
 /// - the block never exceeds the field width or height.
 ///
@@ -99,6 +161,10 @@ public enum InlineGhostLayout {
     ///   - fieldBounds: the focused field's bounds in AX global coords.
     ///   - metrics: resolved font/baseline metrics (drives line height).
     ///   - maxLines: maximum number of lines to render before clipping.
+    ///   - textInset: distance from the field's leading edge to the editor's text
+    ///     column, as measured from AX line geometry. Wrapped and hard-broken lines
+    ///     start here; 0 keeps the field edge (the conservative default when the
+    ///     column cannot be measured).
     ///   - candidate: the completion text to lay out.
     ///   - measure: returns the width (in points) of a given substring in the
     ///     resolved glyph metrics. Injected so this is deterministic in tests.
@@ -107,6 +173,7 @@ public enum InlineGhostLayout {
         fieldBounds: CGRect,
         metrics: GhostTextMetrics,
         maxLines: Int = 3,
+        textInset: CGFloat = 0,
         candidate: String,
         measure: (String) -> CGFloat
     ) -> Result {
@@ -114,6 +181,8 @@ public enum InlineGhostLayout {
         let fieldMinX = fieldBounds.minX
         let fieldMaxX = fieldBounds.maxX
         let fieldWidth = max(fieldBounds.width, 0)
+        let inset = clampedTextInset(textInset, fieldBounds: fieldBounds)
+        let textMinX = fieldMinX + inset
         let limit = max(maxLines, 1)
 
         let chunks = chunks(of: candidate)
@@ -129,14 +198,14 @@ public enum InlineGhostLayout {
             switch chunk.kind {
             case .newline:
                 // Explicit line break: flush the running line, then continue at the
-                // field's leading edge (drop trailing spaces before this break).
+                // text column's leading edge (drop trailing spaces before this break).
                 lines.append(Line(
                     text: trimTrailingWhitespace(current),
                     xOffset: currentLeftX - fieldMinX
                 ))
                 current = ""
                 firstLine = false
-                currentLeftX = fieldMinX
+                currentLeftX = textMinX
 
             case .space:
                 // Preserve whitespace verbatim (indentation and word separators).
@@ -153,19 +222,19 @@ public enum InlineGhostLayout {
                     firstLine: firstLine,
                     currentLeftX: currentLeftX,
                     fieldMaxX: fieldMaxX,
-                    fieldWidth: fieldWidth
+                    textMinX: textMinX
                 ) {
                     current = proposed
                 } else {
                     // Soft wrap at a word boundary: flush the line, dropping the
-                    // trailing whitespace, and start the next line at the leading edge.
+                    // trailing whitespace, and start the next line at the text column.
                     lines.append(Line(
                         text: trimTrailingWhitespace(current),
                         xOffset: currentLeftX - fieldMinX
                     ))
                     current = chunk.text
                     firstLine = false
-                    currentLeftX = fieldMinX
+                    currentLeftX = textMinX
                 }
             }
         }
@@ -221,11 +290,23 @@ public enum InlineGhostLayout {
         firstLine: Bool,
         currentLeftX: CGFloat,
         fieldMaxX: CGFloat,
-        fieldWidth: CGFloat
+        textMinX: CGFloat
     ) -> CGFloat {
         // On the caret line the text may only run to the field's trailing edge;
-        // wrapped lines get the full field width from the leading edge.
-        firstLine ? max(fieldMaxX - currentLeftX, 0) : fieldWidth
+        // wrapped lines get the width of the text column, which starts at the
+        // measured inset and still ends at the field's trailing edge. No right
+        // inset is invented: the column's own right edge is not measured, and
+        // stopping at the field keeps the window inside it.
+        firstLine ? max(fieldMaxX - currentLeftX, 0) : max(fieldMaxX - textMinX, 0)
+    }
+
+    /// Keep a measured text-column inset usable: finite, positive, narrower than
+    /// the field, and leaving at least half the field for the ghost's own text.
+    /// Anything else is a mis-read column, so the ghost stays on the field edge.
+    static func clampedTextInset(_ inset: CGFloat, fieldBounds: CGRect) -> CGFloat {
+        let width = fieldBounds.width
+        guard inset.isFinite, inset > 0, width > 0, width.isFinite, inset < width else { return 0 }
+        return min(inset, width / 2)
     }
 
     /// A run of same-category characters. Splitting into these preserves the

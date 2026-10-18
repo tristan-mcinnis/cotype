@@ -111,6 +111,28 @@ appeared in any output. On text after the cursor the two lanes were close but
 not equal: 3/8 valid for Continuation vs 2/8 for Instructions, both without
 forbidden output.
 
+### How the ghost is drawn
+
+The preview is drawn as the editor's own text would be, from Accessibility facts
+rather than a fixed style:
+
+- **Font:** the run under the caret is read from `kAXAttributedStringForRange`.
+  Hosts report it either as a Cocoa `NSFont` or as the standard Accessibility
+  `AXFont` dictionary (`AXFontName`, `AXFontSize`, family and traits); both are
+  decoded, and the size is validated. A face that no longer exists falls back to
+  its family, then to the system text face at the reported size. The proportional
+  system fallback is used only when a host exposes no font at all, and
+  terminals pass their own monospaced metrics.
+- **Baseline and line pitch:** fitted to the caret's own measured line box, with
+  the baseline one descent above the bottom of that box, which is where AppKit's
+  typesetter puts it. This keeps the ghost on the document's baseline even when
+  the host named a font of a different size.
+- **Wrapped lines:** start at the editor's text column, measured from the caret
+  line's own character bounds (`kAXLineForIndex` + `kAXRangeForLine` + the line's
+  first and last character rects), not at the field's frame edge. A right-to-left
+  line, a line that cannot be confirmed as left-to-right, or a host that does not
+  answer leaves the ghost on the field edge rather than at a guessed margin.
+
 ## Settings
 
 The native preferences window has Setup, General, Context, Personalization,

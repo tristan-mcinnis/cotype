@@ -39,11 +39,21 @@ public struct CaretGeometry {
     public var fieldBounds: CGRect
     /// Resolved font metrics, or `.default` when the editor exposes no font.
     public var metrics: GhostTextMetrics
+    /// Distance from the field's leading edge to the editor's text column,
+    /// measured from the caret line's own AX character bounds. 0 means "not
+    /// measured": the ghost then wraps at the field edge exactly as before.
+    public var textInset: CGFloat
 
-    public init(caretRect: CGRect, fieldBounds: CGRect, metrics: GhostTextMetrics = .default) {
+    public init(
+        caretRect: CGRect,
+        fieldBounds: CGRect,
+        metrics: GhostTextMetrics = .default,
+        textInset: CGFloat = 0
+    ) {
         self.caretRect = caretRect
         self.fieldBounds = fieldBounds
         self.metrics = metrics
+        self.textInset = textInset
     }
 }
 
@@ -124,18 +134,23 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
     public func caretGeometry() -> CaretGeometry? {
         // AX reads are thread-sensitive; callers are already on the main actor.
         guard AXIsProcessTrusted(),
-              let app = NSWorkspace.shared.frontmostApplication else { return nil }
-
-        guard let focused = AXFocusedEditorResolver.resolve(in: app),
-              let fieldBounds = frameAttribute(of: focused)
+              let app = NSWorkspace.shared.frontmostApplication,
+              let focused = AXFocusedEditorResolver.resolve(in: app)
         else { return nil }
+        return geometry(of: focused, bundleIdentifier: app.bundleIdentifier ?? "")
+    }
 
-        if AppCompatibility.isTerminal(app.bundleIdentifier ?? "") {
+    /// Geometry for one already-resolved editor element. Internal so a live probe
+    /// can ask an app that is not frontmost (the probe must not steal focus).
+    func geometry(of focused: AXUIElement, bundleIdentifier: String) -> CaretGeometry? {
+        guard let fieldBounds = frameAttribute(of: focused) else { return nil }
+
+        if AppCompatibility.isTerminal(bundleIdentifier) {
             return MainActor.assumeIsolated { TerminalCaret.geometry(element: focused, field: fieldBounds) }
         }
 
         // Read once and reuse: the ladder's first two steps both need it, and the
-        // font probe below needs it again.
+        // font and column probes below need it again.
         let range = selectedRange(of: focused)
 
         guard let caretRect = resolveCaretRect(
@@ -144,11 +159,46 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
             fieldBounds: fieldBounds
         ) else { return nil }
 
-        // Baseline/font metrics resolved from the field's own attributed text when
-        // the host exposes it, so the ghost uses the same font and baselines.
-        let metrics = range.flatMap { attributedFontMetrics(of: focused, range: $0) } ?? .default
+        // Read the document length once: both probes below are bounded by it, and
+        // `kAXValue` copies the whole text, so asking twice is wasted work.
+        let documentLength = valueLength(of: focused)
 
-        return CaretGeometry(caretRect: caretRect, fieldBounds: fieldBounds, metrics: metrics)
+        // Baseline/font metrics resolved from the field's own attributed text when
+        // the host exposes it, so the ghost uses the same font and baselines. The
+        // resolved line box is then fitted to the caret's own measured line box:
+        // that is what makes the ghost's baseline match the text under it, whether
+        // or not the host named the right font.
+        let font = range.flatMap {
+            attributedFontMetrics(of: focused, range: $0, documentLength: documentLength)
+        }
+        let base = font.map(GhostTextMetrics.init(font:)) ?? GhostTextMetrics.default
+        let metrics = base.aligningLineBox(toMeasuredHeight: caretRect.height)
+
+        // The text column's leading edge, measured from the caret line's character
+        // bounds. 0 when the host does not answer or the line is not a plain
+        // left-to-right column.
+        let textInset = range.flatMap {
+            textColumnInset(
+                of: focused,
+                caretRange: $0,
+                documentLength: documentLength,
+                caretRect: caretRect,
+                fieldBounds: fieldBounds
+            )
+        } ?? 0
+
+        CotypeLog.geometry.debug("""
+        ghost font=\(metrics.font.fontName, privacy: .public) size=\(metrics.font.pointSize, privacy: .public) \
+        line=\(metrics.lineHeight, privacy: .public) baseline=\(metrics.baselineOffset, privacy: .public) \
+        inset=\(textInset, privacy: .public)
+        """)
+
+        return CaretGeometry(
+            caretRect: caretRect,
+            fieldBounds: fieldBounds,
+            metrics: metrics,
+            textInset: textInset
+        )
     }
 
     /// Field bounds and font for the opt-in fallback preview. This never invents
@@ -161,7 +211,14 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
               let fieldBounds = frameAttribute(of: focused)
         else { return nil }
         let metrics = selectedRange(of: focused)
-            .flatMap { attributedFontMetrics(of: focused, range: $0) } ?? .default
+            .flatMap {
+                attributedFontMetrics(
+                    of: focused,
+                    range: $0,
+                    documentLength: valueLength(of: focused)
+                )
+            }
+            .map(GhostTextMetrics.init(font:)) ?? .default
         return CaretFieldGeometry(fieldBounds: fieldBounds, metrics: metrics)
     }
 
@@ -431,17 +488,25 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
         return size
     }
 
-    /// Resolve the editor's font metrics from the attributed string just before the
-    /// caret (kAXAttributedStringForRange). A zero-length caret range yields an
-    /// empty attributed string and always falls back to the default font, so we
-    /// probe one character — the one immediately before the caret (or the first
-    /// after it at document start) — to read the font the user is actually typing
-    /// with. The caret-bounds lookup above still uses the real caret range.
-    /// Returns nil when the host exposes no attributed text (common in web/Electron).
-    private func attributedFontMetrics(of element: AXUIElement, range: CFRange) -> GhostTextMetrics? {
+    /// Resolve the editor's font from the attributed string just before the caret
+    /// (kAXAttributedStringForRange). A zero-length caret range yields an empty
+    /// attributed string, so we probe one character — the one immediately before
+    /// the caret (or the first after it at document start) — to read the font the
+    /// user is actually typing with. The caret-bounds lookup above still uses the
+    /// real caret range. Returns nil when the host exposes no attributed text
+    /// (common in web/Electron) or no decodable font on it.
+    ///
+    /// The font may arrive as a Cocoa `NSFont` or as the standard Accessibility
+    /// `AXFont` dictionary; `AXFontDecoder` handles both. Only font attributes are
+    /// read here — never the characters.
+    private func attributedFontMetrics(
+        of element: AXUIElement,
+        range: CFRange,
+        documentLength: Int
+    ) -> NSFont? {
         // Prefer probing the character before the caret so the ghost font matches
         // the text under the insertion point.
-        let probe = Self.fontProbeRange(for: range, documentLength: valueLength(of: element))
+        let probe = Self.fontProbeRange(for: range, documentLength: documentLength)
         guard probe.length > 0 else { return nil }
         var r = probe
         guard let parameter = AXValueCreate(.cfRange, &r) else { return nil }
@@ -455,11 +520,149 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
         guard err == .success,
               let value,
               CFGetTypeID(value) == CFAttributedStringGetTypeID(),
-              let attributed = value as? NSAttributedString else { return nil }
+              let attributed = value as? NSAttributedString
+        else { return nil }
 
-        guard attributed.length > 0 else { return nil }
-        guard let font = attributed.attribute(.font, at: 0, effectiveRange: nil) as? NSFont else { return nil }
-        return GhostTextMetrics(font: font)
+        return AXFontDecoder.font(from: attributed)
+    }
+
+    // MARK: - Text column inset
+
+    /// Distance from the field's leading edge to the leading edge of the caret
+    /// line's text column, read from that line's own AX character bounds.
+    ///
+    /// A text view's frame includes its container padding, so wrapping at the
+    /// field's edge draws the continuation left of where the document's own lines
+    /// start. This asks the editor for the truth instead of assuming a margin: the
+    /// caret's line number (`kAXLineForIndex`), that line's range
+    /// (`kAXRangeForLine`), and the bounds of its first and last characters. Every
+    /// step is optional; any unsupported attribute or implausible rect returns nil
+    /// and the ghost keeps the field edge.
+    private func textColumnInset(
+        of element: AXUIElement,
+        caretRange: CFRange,
+        documentLength: Int,
+        caretRect: CGRect,
+        fieldBounds: CGRect
+    ) -> CGFloat? {
+        guard documentLength > 0 else { return nil }
+        // The probe character sits on the caret's own line (before the caret, or
+        // the first character at document start).
+        let probe = Self.fontProbeRange(for: caretRange, documentLength: documentLength)
+        guard probe.length > 0,
+              let line = lineNumber(of: element, forCharacterAt: probe.location),
+              let lineRange = rangeForLine(of: element, line: line),
+              lineRange.length > 0,
+              lineRange.location >= 0,
+              lineRange.location < documentLength,
+              let firstCharacter = boundsForRange(
+                  of: element,
+                  range: CFRange(location: lineRange.location, length: 1)
+              )
+        else { return nil }
+
+        let lastIndex = min(lineRange.location + lineRange.length - 1, documentLength - 1)
+        let lastCharacter = lastIndex > lineRange.location
+            ? boundsForRange(of: element, range: CFRange(location: lastIndex, length: 1))
+            : nil
+
+        return Self.textColumnInset(
+            firstCharacter: firstCharacter,
+            lastCharacter: lastCharacter,
+            caretRect: caretRect,
+            fieldBounds: fieldBounds
+        )
+    }
+
+    /// Pure inset decision. Accepts only a plain left-to-right text column inside
+    /// the field:
+    ///
+    /// - the line's first character must share the caret's line box, so a stale or
+    ///   scrolled line range cannot move the ghost;
+    /// - the first character must be left of the line's last character when the
+    ///   last character has usable bounds. On a right-to-left line the logical
+    ///   first character is the rightmost one, and applying a left inset there
+    ///   would push the continuation into the middle of the text;
+    /// - the caret must not sit left of the column it is in, and the inset must be
+    ///   small enough to leave room for the ghost's own text.
+    ///
+    /// Everything else returns nil, which means inset 0: the ghost stays where it
+    /// is drawn today rather than at a guessed margin.
+    static func textColumnInset(
+        firstCharacter: CGRect,
+        lastCharacter: CGRect?,
+        caretRect: CGRect,
+        fieldBounds: CGRect
+    ) -> CGFloat? {
+        guard fieldBounds.width > 0, fieldBounds.height > 0,
+              caretRect.height > 0,
+              firstCharacter.height > 0, firstCharacter.height.isFinite,
+              firstCharacter.width >= 0, firstCharacter.width.isFinite,
+              firstCharacter.minX.isFinite, firstCharacter.minY.isFinite
+        else { return nil }
+
+        // Same line box as the caret (a caret can be reported a point or two off
+        // the character's own top, so the tolerance is half a line).
+        let lineTolerance = max(1, caretRect.height * 0.5)
+        guard abs(firstCharacter.minY - caretRect.minY) <= lineTolerance else { return nil }
+
+        let inset = firstCharacter.minX - fieldBounds.minX
+        guard inset.isFinite, inset > 0 else { return nil }
+
+        // Confirmed direction when the line's last character has real bounds.
+        var leftToRight: Bool?
+        if let lastCharacter,
+           lastCharacter.height > 0,
+           lastCharacter.width > 0,
+           abs(lastCharacter.minY - firstCharacter.minY) <= lineTolerance {
+            leftToRight = lastCharacter.minX >= firstCharacter.minX
+        }
+        if leftToRight == false { return nil }
+
+        // A confirmed line may carry a wide margin; an unconfirmed one (a line
+        // ending in a newline, whose bounds are often empty) only a narrow one.
+        let limit = leftToRight == true ? 0.35 : 0.25
+        guard inset < fieldBounds.width * limit else { return nil }
+
+        // The caret sits at or right of its column's leading edge. On a
+        // right-to-left line every other character is left of the first, so this
+        // also rejects the remaining unconfirmed RTL cases.
+        guard caretRect.minX >= firstCharacter.minX - 0.5 else { return nil }
+        return inset
+    }
+
+    /// The line number containing a character index (`kAXLineForIndex`).
+    private func lineNumber(of element: AXUIElement, forCharacterAt index: Int) -> Int? {
+        guard index >= 0 else { return nil }
+        var value: CFTypeRef?
+        let err = AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXLineForIndexParameterizedAttribute as CFString,
+            NSNumber(value: index),
+            &value
+        )
+        guard err == .success, let value else { return nil }
+        return (value as? NSNumber)?.intValue
+    }
+
+    /// A line's character range (`kAXRangeForLine`).
+    private func rangeForLine(of element: AXUIElement, line: Int) -> CFRange? {
+        var value: CFTypeRef?
+        let err = AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXRangeForLineParameterizedAttribute as CFString,
+            NSNumber(value: line),
+            &value
+        )
+        guard err == .success,
+              let value,
+              CFGetTypeID(value) == AXValueGetTypeID()
+        else { return nil }
+        let axValue = unsafeBitCast(value, to: AXValue.self)
+        guard AXValueGetType(axValue) == .cfRange else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(axValue, .cfRange, &range) else { return nil }
+        return range
     }
 
     /// The focused element's text length, used to bound the font-probe range.

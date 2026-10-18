@@ -271,6 +271,7 @@ public final class GhostTextRenderer: CompletionRenderer {
             fieldBounds: geometry.fieldBounds,
             metrics: metrics,
             maxLines: maxLines,
+            textInset: geometry.textInset,
             candidate: candidate,
             measure: measure
         )
@@ -353,7 +354,13 @@ final class GhostContentView: NSView {
             .paragraphStyle: clippingParagraphStyle,
         ]
         for (index, line) in lines.enumerated() {
-            let point = NSPoint(x: line.xOffset, y: CGFloat(index) * metrics.lineHeight)
+            // Each line box is one line height tall. The baseline inside it comes
+            // from the resolved metrics, not from the draw point, so a ghost fitted
+            // to the editor's own line box lands on the editor's baseline.
+            let point = NSPoint(
+                x: line.xOffset,
+                y: CGFloat(index) * metrics.lineHeight + metrics.baselineDrawOffset
+            )
             NSString(string: line.text).draw(at: point, withAttributes: attrs)
         }
     }

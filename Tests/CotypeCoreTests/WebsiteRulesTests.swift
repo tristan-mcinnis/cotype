@@ -19,7 +19,7 @@ final class WebsiteRulesTests: XCTestCase {
     }
 
     func testNonWebAndUserInfoURLsAreRefused() {
-        XCTAssertNil(WebsiteDomain.host(from: URL(string: "file:///Users/me/notes.txt")!))
+        XCTAssertNil(WebsiteDomain.host(from: URL(string: "file:///var/tmp/notes.txt")!))
         XCTAssertNil(WebsiteDomain.host(from: URL(string: "about:blank")!))
         XCTAssertNil(WebsiteDomain.host(from: URL(string: "chrome://settings")!))
         XCTAssertNil(WebsiteDomain.host(from: URL(string: "https://someone@example.com/")!))
@@ -80,7 +80,7 @@ final class WebsiteRulesTests: XCTestCase {
 
     func testUnreadableOrNonWebDocumentsAreAmbiguous() {
         XCTAssertNil(BrowserDocumentIdentity.domain(
-            elementDocument: "file:///Users/me/letter.txt",
+            elementDocument: "file:///var/tmp/letter.txt",
             windowDocument: "https://example.com/"
         ))
         XCTAssertNil(BrowserDocumentIdentity.domain(elementDocument: nil, windowDocument: nil))
