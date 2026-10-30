@@ -193,8 +193,14 @@ struct SettingsView: View {
 
     private var pane: some View {
         VStack(spacing: 0) {
-            PaneHeader(title: selection.title, purpose: selection.purpose)
-            content
+            // Form spacing (design-system/docs/form-spacing.md): pane top xxxl,
+            // header -> first card xl, set once here. Sides and the bottom xxxl
+            // sit inside each pane's scroll; the footer well stays flush.
+            VStack(spacing: House.Spacing.xl) {
+                PaneHeader(title: selection.title, purpose: selection.purpose)
+                content
+            }
+            .padding(.top, House.Spacing.xxxl)
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -237,8 +243,8 @@ struct SettingsView: View {
                         ContactSupportPane()
                     }
                 }
-                .padding(.vertical, House.Spacing.xxxl)
                 .padding(.horizontal, House.Spacing.xxl)
+                .padding(.bottom, House.Spacing.xxxl)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

@@ -39,7 +39,9 @@ struct AppSettingsPane: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minWidth: 600, minHeight: 460)
+        // 620 window - footer - pane top xxxl - header 60 - xl gap; 460 overflowed
+        // once the pane top moved above the header.
+        .frame(minWidth: 600, minHeight: 388)
     }
 
     // MARK: - Left column
@@ -169,8 +171,8 @@ struct AppSettingsPane: View {
                     }
                 }
             }
-            .padding(.vertical, House.Spacing.xxxl)
             .padding(.horizontal, House.Spacing.xxl)
+            .padding(.bottom, House.Spacing.xxxl)
         }
         .onAppear {
             draftPrompt = entry.systemPrompt ?? ""
