@@ -23,7 +23,7 @@ let package = Package(
         // the framework (and its bundled Updater.app / XPC services) in the
         // release bundle. See docs/RELEASE.md.
         .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.6.0"),
-        .package(url: "https://github.com/tristan-mcinnis/design-system", from: "1.0.0"),
+        .package(url: "https://github.com/tristan-mcinnis/design-system", from: "1.1.0"),
     ],
     targets: [
         .target(name: "CotypeUpdateCore"),

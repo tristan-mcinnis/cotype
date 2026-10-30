@@ -213,7 +213,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: House.Spacing.md) {
+                VStack(alignment: .leading, spacing: House.Spacing.xl) {
                     switch selection {
                     case .setup:
                         SetupPane(engineManager: engineManager)
@@ -237,7 +237,8 @@ struct SettingsView: View {
                         ContactSupportPane()
                     }
                 }
-                .padding(House.Spacing.lg)
+                .padding(.vertical, House.Spacing.xxxl)
+                .padding(.horizontal, House.Spacing.xxl)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

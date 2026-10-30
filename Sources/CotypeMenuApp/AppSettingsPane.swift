@@ -95,7 +95,7 @@ struct AppSettingsPane: View {
 
     private func detail(_ entry: AppSettingsModel.Entry) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: House.Spacing.md) {
+            VStack(alignment: .leading, spacing: House.Spacing.xl) {
                 SettingsCard(title: entry.displayName, subtitle: entry.bundleID) {
                     StatRow(title: "Usage events (content-free)", value: "\(entry.count)")
                 }
@@ -169,7 +169,8 @@ struct AppSettingsPane: View {
                     }
                 }
             }
-            .padding(House.Spacing.lg)
+            .padding(.vertical, House.Spacing.xxxl)
+            .padding(.horizontal, House.Spacing.xxl)
         }
         .onAppear {
             draftPrompt = entry.systemPrompt ?? ""
@@ -484,30 +485,32 @@ private struct WebsiteRulesCard: View {
                     }
                     if editingHost == entry.host {
                         SlateDivider()
-                        SlateBlock {
-                            SlateProse("Instructions for \(entry.host). Sent as the system message in the Instructions prompt style, and only while this host is the trusted foreground identity. The Continuation style does not send them.", tertiary: true)
-                            TextEditor(text: $draftInstructions)
-                                .font(House.TypeToken.code)
-                                .scrollContentBackground(.hidden)
-                                .frame(minHeight: 80, maxHeight: 160)
-                                .padding(House.Spacing.xs)
-                                .background(
-                                    RoundedRectangle(cornerRadius: House.Radius.sm, style: .continuous)
-                                        .fill(House.ColorToken.well)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: House.Radius.sm, style: .continuous)
-                                        .strokeBorder(House.ColorToken.stroke, lineWidth: House.hairline)
-                                )
-                            HStack(spacing: House.Spacing.xs) {
-                                Button("Save") { saveInstructions(entry.host) }
-                                    .buttonStyle(HouseChipButtonStyle())
-                                Button("Clear") {
-                                    draftInstructions = ""
-                                    model.setInstructions(entry.host, "")
-                                }
-                                .buttonStyle(HouseChipButtonStyle())
+                        SlateFormBlock {
+                            SlateField(label: nil) {
+                                TextEditor(text: $draftInstructions)
+                                    .font(House.TypeToken.code)
+                                    .scrollContentBackground(.hidden)
+                                    .frame(minHeight: 80, maxHeight: 160)
+                                    .padding(House.Spacing.xs)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: House.Radius.sm, style: .continuous)
+                                            .fill(House.ColorToken.well)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: House.Radius.sm, style: .continuous)
+                                            .strokeBorder(House.ColorToken.stroke, lineWidth: House.hairline)
+                                    )
+                            } helper: {
+                                SlateProse("Instructions for \(entry.host). Sent as the system message in the Instructions prompt style, and only while this host is the trusted foreground identity. The Continuation style does not send them.", tertiary: true)
                             }
+                        } actions: {
+                            Button("Save") { saveInstructions(entry.host) }
+                                .buttonStyle(HouseChipButtonStyle())
+                            Button("Clear") {
+                                draftInstructions = ""
+                                model.setInstructions(entry.host, "")
+                            }
+                            .buttonStyle(HouseChipButtonStyle())
                         }
                     }
                 }

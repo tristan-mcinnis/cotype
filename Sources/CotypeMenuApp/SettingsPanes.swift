@@ -454,7 +454,7 @@ struct ModelSetupCard: View {
             }
             SlateDivider()
             SlateRow {
-                HStack {
+                HStack(spacing: House.Spacing.xs) {
                     modelLoadButton
                     Spacer()
                     Button("Remove") {
@@ -511,7 +511,7 @@ struct SetupPane: View {
     @State private var practiceCompleted = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: House.Spacing.md) {
+        VStack(alignment: .leading, spacing: House.Spacing.xl) {
             if useDaemon {
                 LocalModelsReadinessChecklist(
                     localModels: localModels,
@@ -709,7 +709,7 @@ struct PracticeField: View {
     @State private var remainder: (text: String, ghost: String)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: House.Spacing.sm) {
+        VStack(alignment: .leading, spacing: House.Spacing.xxs) {
             // The candidate is rendered inline inside the same editor, after the
             // user's text, as dim gray ghost text — not as a separate card.
             InlinePracticeEditor(text: $text, candidate: candidate, onAcceptKey: accept)
@@ -723,7 +723,7 @@ struct PracticeField: View {
                     RoundedRectangle(cornerRadius: House.Radius.sm, style: .continuous)
                         .strokeBorder(House.ColorToken.stroke, lineWidth: House.hairline)
                 )
-            HStack {
+            HStack(spacing: House.Spacing.xs) {
                 SlateProse(statusText, tertiary: true)
                 Spacer()
                 if succeeded {
@@ -1010,7 +1010,7 @@ struct GeneralPane: View {
     @EnvironmentObject private var reset: SettingsResetCoordinator
 
     var body: some View {
-        VStack(alignment: .leading, spacing: House.Spacing.md) {
+        VStack(alignment: .leading, spacing: House.Spacing.xl) {
             SettingsCard(title: "Completions") {
                 SlateRow(title: "Enable completions") {
                     InkSwitch(isOn: Binding(
@@ -1066,27 +1066,27 @@ struct GeneralPane: View {
 
             SettingsCard(title: "Generation") {
                 SlateBlock {
-                    Text("System prompt")
-                        .font(House.TypeToken.label)
-                        .foregroundStyle(House.ColorToken.textPrimary)
-                    TextEditor(text: $systemPrompt)
-                        .font(House.TypeToken.code)
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 90)
-                        .padding(House.Spacing.xs)
-                        .background(
-                            RoundedRectangle(cornerRadius: House.Radius.sm, style: .continuous)
-                                .fill(House.ColorToken.well)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: House.Radius.sm, style: .continuous)
-                                .strokeBorder(House.ColorToken.stroke, lineWidth: House.hairline)
-                        )
-                    SlateProse("Your own writing instructions. They are sent as the system message in the Instructions style only. The Continuation style keeps the measured plain-text prompt and does not send them; it continues any prose it is given.", tertiary: true)
-                    if promptStyle == PromptStyle.continuation.rawValue,
-                       systemPrompt != AutocompletePrompt.defaultSystem,
-                       !systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        SlateProse("Saved, but not sent in Continuation. Switch Prompt style to Instructions to apply it. Measured on this model (2026-10-17), Instructions is less accurate on general text than Continuation, so Continuation remains the default; see the README for the dated result.", tertiary: true)
+                    SlateField(label: "System prompt") {
+                        TextEditor(text: $systemPrompt)
+                            .font(House.TypeToken.code)
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 90)
+                            .padding(House.Spacing.xs)
+                            .background(
+                                RoundedRectangle(cornerRadius: House.Radius.sm, style: .continuous)
+                                    .fill(House.ColorToken.well)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: House.Radius.sm, style: .continuous)
+                                    .strokeBorder(House.ColorToken.stroke, lineWidth: House.hairline)
+                            )
+                    } helper: {
+                        SlateProse("Your own writing instructions. They are sent as the system message in the Instructions style only. The Continuation style keeps the measured plain-text prompt and does not send them; it continues any prose it is given.", tertiary: true)
+                        if promptStyle == PromptStyle.continuation.rawValue,
+                           systemPrompt != AutocompletePrompt.defaultSystem,
+                           !systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            SlateProse("Saved, but not sent in Continuation. Switch Prompt style to Instructions to apply it. Measured on this model (2026-10-17), Instructions is less accurate on general text than Continuation, so Continuation remains the default; see the README for the dated result.", tertiary: true)
+                        }
                     }
                 }
                 SlateDivider()
@@ -1244,7 +1244,7 @@ struct ContextPane: View {
     @AppStorage(CompletionController.personalFactsKey) private var personalFacts = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: House.Spacing.md) {
+        VStack(alignment: .leading, spacing: House.Spacing.xl) {
             SettingsCard(title: "About you") {
                 SlateBlock {
                     SlateProse("Facts Cotype may use in suggestions: names, emails, company, phrases. One per line. Sent only to the local model.", tertiary: true)
@@ -1331,7 +1331,7 @@ struct UnavailableToggle: View {
 
     var body: some View {
         SlateRow(title: title, detail: caption) {
-            HStack(spacing: House.Spacing.sm) {
+            HStack(spacing: House.Spacing.xs) {
                 Text("Unavailable")
                     .font(House.TypeToken.meta)
                     .foregroundStyle(House.ColorToken.textTertiary)
@@ -1353,7 +1353,7 @@ struct PersonalizationPane: View {
     @State private var refresh = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: House.Spacing.md) {
+        VStack(alignment: .leading, spacing: House.Spacing.xl) {
             SettingsCard(title: "Learning", subtitle: "Accepted examples are used in the Instructions prompt style") {
                 SlateRow(title: "Learn from accepted and rejected completions") {
                     InkSwitch(isOn: $learnFromFeedback)
@@ -1413,7 +1413,7 @@ struct ShortcutsPane: View {
     @EnvironmentObject private var reset: SettingsResetCoordinator
 
     var body: some View {
-        VStack(alignment: .leading, spacing: House.Spacing.md) {
+        VStack(alignment: .leading, spacing: House.Spacing.xl) {
             SettingsCard(title: "Accept") {
                 SlateRow(
                     title: "Accept key",
@@ -1626,7 +1626,7 @@ struct StatisticsPane: View {
         let summary = store.usageSummary()
         let perApp = perAppBreakdown()
 
-        VStack(alignment: .leading, spacing: House.Spacing.md) {
+        VStack(alignment: .leading, spacing: House.Spacing.xl) {
             SettingsCard(title: "Usage", subtitle: "Content-free counters are kept even when feedback logging is off") {
                 StatRow(title: "Shown (offered)", value: "\(summary.shown)")
                 SlateDivider()
@@ -1697,7 +1697,7 @@ struct PrivacyDataPane: View {
         SensitiveContextDetector.builtInSensitiveApps.sorted()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: House.Spacing.md) {
+        VStack(alignment: .leading, spacing: House.Spacing.xl) {
             SettingsCard(title: "Local inference", subtitle: "Cotype uses the Local Models daemon on this Mac") {
                 SlateRow(title: "Completion prompts travel only over loopback HTTP to Local Models and never leave this Mac.") {
                     StatusPill(text: "Loopback only", tint: House.ColorToken.success)
@@ -1999,7 +1999,7 @@ struct AboutPane: View {
     @State private var notarization: NotarizationStatus?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: House.Spacing.md) {
+        VStack(alignment: .leading, spacing: House.Spacing.xl) {
             SettingsCard(title: "Cotype") {
                 SlateBlock {
                     AppMark(symbol: "text.cursor", name: "Cotype", caption: "Version \(Self.version)")
@@ -2099,7 +2099,7 @@ struct AboutPane: View {
 
 struct ContactSupportPane: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: House.Spacing.md) {
+        VStack(alignment: .leading, spacing: House.Spacing.xl) {
             SettingsCard(title: "Get help") {
                 LinkRow(icon: "curlybraces", title: "File an issue", url: "https://github.com/tristan-mcinnis/cotype/issues")
                 SlateDivider()
