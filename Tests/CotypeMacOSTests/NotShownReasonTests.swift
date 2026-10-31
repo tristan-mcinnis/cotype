@@ -5,8 +5,8 @@ import CotypeCore
 @MainActor
 final class NotShownReasonTests: XCTestCase {
 
-    private static let editor = "com.example.editor"
-    private static let focus = FocusTarget(
+    nonisolated private static let editor = "com.example.editor"
+    nonisolated private static let focus = FocusTarget(
         appIdentifier: editor, windowIdentity: 1, elementIdentity: 2, selection: .unsupported
     )
     private static let movedFocus = FocusTarget(

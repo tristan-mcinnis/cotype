@@ -154,8 +154,8 @@ final class EditorCompatibilityTests: XCTestCase {
 
 /// A clipboard operator that performs the paste on a real NSTextView. It stands
 /// in for the Cmd+V that production posts, so the editor's own undo and
-/// attribute handling are exercised.
-@MainActor
+/// attribute handling are exercised. The inserter calls it on the main actor;
+/// only the paste touches the text view, so only the paste asserts that.
 private final class EditorClipboard: ClipboardOperator, @unchecked Sendable {
     private let editor: NSTextView
     private var pending: String?
@@ -179,7 +179,9 @@ private final class EditorClipboard: ClipboardOperator, @unchecked Sendable {
     func postPaste() {
         guard let text = pending else { return }
         pending = nil
-        editor.insertText(text, replacementRange: editor.selectedRange())
+        MainActor.assumeIsolated {
+            editor.insertText(text, replacementRange: editor.selectedRange())
+        }
     }
 
     func restore(_ snapshot: ClipboardSnapshot, expectedChangeCount: Int?, ignoreChangeCount: Bool) -> Bool {
