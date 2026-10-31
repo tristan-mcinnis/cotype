@@ -317,13 +317,40 @@ final class EndToEndPipelineTests: XCTestCase {
         XCTAssertEqual(rig.editor.string, "Let me get back to you by")
     }
 
+    /// Keystroke-to-ghost latency proxy: one typed key to a visible ghost,
+    /// through the production debounce, controller, prompt, engine stack and
+    /// sanitizer, against the fake llama-server (no model time). Prints the
+    /// median and p90 so a pass can record before/after numbers.
+    func testKeystrokeToGhostLatency() async {
+        var samples: [Double] = []
+        for _ in 0..<25 {
+            let rig = Rig(before: "Let me get back to you by")
+            rig.controller.debounceInterval = CompletionController.defaultDebounceInterval
+            FakeLlamaServer.reset(model: " the end of the day")
+            let start = DispatchTime.now().uptimeNanoseconds
+            rig.controller.noteTyped("y")
+            let shown = await waitUntil({ rig.renderer.ghost != nil }, poll: 1_000_000)
+            XCTAssertTrue(shown)
+            samples.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+        }
+        samples.sort()
+        let median = samples[samples.count / 2]
+        let p90 = samples[Int(Double(samples.count) * 0.9)]
+        print(String(format: "COTYPE_LATENCY keystroke_to_ghost_ms median=%.1f p90=%.1f n=%d", median, p90, samples.count))
+        XCTAssertLessThan(median, 1_000, "keystroke-to-ghost proxy regressed past one second")
+    }
+
     // MARK: Helpers
 
-    private func waitUntil(_ condition: @escaping () -> Bool, timeout: TimeInterval = 3) async -> Bool {
+    private func waitUntil(
+        _ condition: @escaping () -> Bool,
+        timeout: TimeInterval = 3,
+        poll: UInt64 = 5_000_000
+    ) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() { return true }
-            try? await Task.sleep(nanoseconds: 5_000_000)
+            try? await Task.sleep(nanoseconds: poll)
         }
         return condition()
     }

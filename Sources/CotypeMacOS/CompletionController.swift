@@ -92,7 +92,8 @@ public final class CompletionController: ObservableObject {
     /// TabType defaults to 90 ms and cotabby/KeyType to 15-55 ms; the local
     /// daemon answers in about 200 ms, so 120 ms keeps the ghost close behind
     /// the caret without generating on every keystroke of a burst.
-    public var debounceInterval: TimeInterval = 0.12
+    public static let defaultDebounceInterval: TimeInterval = 0.12
+    public var debounceInterval: TimeInterval = CompletionController.defaultDebounceInterval
 
     /// UserDefaults key for automatic suggestions while typing. The app
     /// registers it as `true`; the manual trigger chord always works too.
