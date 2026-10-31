@@ -1,0 +1,70 @@
+import SwiftUI
+import AppKit
+import ServiceManagement
+import UniformTypeIdentifiers
+import CotypeCore
+import CotypeMacOS
+import HouseDesign
+import HouseUIKit
+
+// MARK: - Personalization
+
+struct PersonalizationPane: View {
+    let store: PersonalizationStore
+    @ObservedObject var engineManager: EngineManager
+
+    // Content logging is OFF by default. Content-free, bounded usage counters
+    // are still recorded as documented in Privacy & Data.
+    @AppStorage("learnFromFeedback") private var learnFromFeedback = false
+    @State private var refresh = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: House.Spacing.xl) {
+            SettingsCard(title: "Learning", subtitle: "Accepted examples are used in the Instructions prompt style") {
+                SlateRow(title: "Learn from accepted and rejected completions") {
+                    InkSwitch(isOn: $learnFromFeedback)
+                }
+                SlateDivider()
+                SlateRow(title: "Samples recorded") {
+                    Text("\(store.count)")
+                        .font(House.TypeToken.label)
+                        .foregroundStyle(House.ColorToken.textSecondary)
+                }
+                SlateDivider()
+                SlateRow {
+                    Button("Clear all samples") {
+                        store.clear()
+                        refresh += 1
+                    }
+                    .buttonStyle(HouseChipButtonStyle(destructive: true))
+                }
+            }
+            SettingsCard(title: "Recent samples", subtitle: "Newest first") {
+                let samples = Array(store.samples().prefix(8))
+                if samples.isEmpty {
+                    SlateBlock {
+                        SlateProse("No samples recorded yet.", tertiary: true)
+                    }
+                } else {
+                    ForEach(Array(samples.enumerated()), id: \.offset) { index, sample in
+                        if index > 0 { SlateDivider() }
+                        SlateRow(
+                            title: appDisplayName(for: sample.appIdentifier),
+                            detail: sample.completion.isEmpty ? nil : String(sample.completion.prefix(120)),
+                            minHeight: 38
+                        ) {
+                            HStack(spacing: House.Spacing.xs) {
+                                StatusDot(tint: outcomeTint(for: sample.outcome))
+                                Text(outcomeLabel(for: sample.outcome))
+                                    .font(House.TypeToken.meta)
+                                    .foregroundStyle(House.ColorToken.textTertiary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .id(refresh)
+    }
+}
+
