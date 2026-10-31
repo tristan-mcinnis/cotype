@@ -7,7 +7,7 @@ Canonical file. `AGENTS.md` is a symlink to this file so every runtime reads one
 Cotype is a private, personal macOS menu-bar app for local AI text completion.
 It reads the focused text field through Accessibility (plus bounded visible
 window text when the user turns that on), asks the local model for the next
-few words (the Suggestion length setting: 1-3, 3-6, or the rest of the
+few words (the Suggestion length setting: 1-4, 3-6, or the rest of the
 sentence up to 16), shows them as ghost text, and inserts them only when
 accepted. The local-models daemon owns the registry, weights, and load/unload
 lifecycle; the Local Models menu bar is its face. Cotype keeps no second model

@@ -73,10 +73,14 @@ final class SuggestionLengthTests: XCTestCase {
     func testLengthDrivesPromptAndCaps() {
         XCTAssertTrue(SuggestionLength.long.applied(to: AutocompletePrompt.defaultSystem).contains("finish the current sentence"))
         XCTAssertFalse(SuggestionLength.short.applied(to: AutocompletePrompt.defaultSystem).contains("2-5 words"))
-        XCTAssertEqual(SuggestionWordLimiter.limit("due to better quality and price", maxWords: SuggestionLength.short.maxWords), "due to better")
+        XCTAssertEqual(SuggestionWordLimiter.limit("due to better quality and price", maxWords: SuggestionLength.short.maxWords), "due to better quality")
         let d = UserDefaults(suiteName: "SuggestionLengthTests")!
         d.removePersistentDomain(forName: "SuggestionLengthTests")
-        XCTAssertEqual(SuggestionLength.current(d), .medium)
+        XCTAssertEqual(SuggestionLength.current(d), .short)
+        XCTAssertEqual(SuggestionLength.short.title, "1-4 words")
+        XCTAssertEqual(SuggestionLength.short.promptPhrase, "(usually 1-4 words)")
+        XCTAssertEqual(SuggestionLength.short.chatDirective, "Use 1-4 words.")
+        XCTAssertEqual(SuggestionLength.short.maxWords, 4)
     }
 
     func testHiGetsASpace() {

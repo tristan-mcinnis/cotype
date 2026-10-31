@@ -3,7 +3,7 @@
 A native Apple-Silicon macOS 14+ menu-bar app for private, local AI text
 completion. Cotype reads the current text field (plus bounded visible text from
 the active window, if you turn that on in Context) through Accessibility, asks
-Gemma for the next few words (the Suggestion length setting: 1-3 words, 3-6
+Gemma for the next few words (the Suggestion length setting: 1-4 words, 3-6
 words, or the rest of the sentence), previews them as ghost text, and inserts
 them only when you accept. The Local Models daemon (`local-models`) owns the
 registry, weights, and load/unload lifecycle; use the Local Models menu bar, its

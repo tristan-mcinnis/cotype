@@ -2,14 +2,14 @@ import Foundation
 
 /// How long a suggestion may be. One setting drives the prompt wording, the
 /// word cap on the output, and the token budget, so they never disagree.
-/// Mirrors TabType's short/medium/long presets (3 / 8 / 14 words).
+/// Short is the default and matches Cotypist's 1-4 word completions.
 public enum SuggestionLength: String, CaseIterable, Codable, Sendable {
     case short
     case medium
     case long
 
     public static let defaultsKey = "suggestionLength"
-    public static let `default`: SuggestionLength = .medium
+    public static let `default`: SuggestionLength = .short
 
     public static func current(_ defaults: UserDefaults = .standard) -> SuggestionLength {
         defaults.string(forKey: defaultsKey).flatMap(SuggestionLength.init(rawValue:)) ?? .default
@@ -17,7 +17,7 @@ public enum SuggestionLength: String, CaseIterable, Codable, Sendable {
 
     public var title: String {
         switch self {
-        case .short: return "1-3 words"
+        case .short: return "1-4 words"
         case .medium: return "3-6 words"
         case .long: return "Full sentence"
         }
@@ -26,7 +26,7 @@ public enum SuggestionLength: String, CaseIterable, Codable, Sendable {
     /// Replaces "(usually 2-5 words)" in the system prompt.
     public var promptPhrase: String {
         switch self {
-        case .short: return "(usually 1-3 words)"
+        case .short: return "(usually 1-4 words)"
         case .medium: return "(usually 3-6 words)"
         case .long: return "(finish the current sentence, up to about 15 words)"
         }
@@ -34,7 +34,7 @@ public enum SuggestionLength: String, CaseIterable, Codable, Sendable {
 
     public var maxWords: Int {
         switch self {
-        case .short: return 3
+        case .short: return 4
         case .medium: return 6
         case .long: return 16
         }
@@ -45,7 +45,7 @@ public enum SuggestionLength: String, CaseIterable, Codable, Sendable {
     /// and the word cap.
     public var chatDirective: String {
         switch self {
-        case .short: return "Use 1-3 words."
+        case .short: return "Use 1-4 words."
         case .medium: return "Use 3-6 words."
         case .long: return "Finish the current sentence, up to about 15 words."
         }

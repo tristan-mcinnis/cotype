@@ -80,9 +80,9 @@ final class EndToEndPipelineTests: XCTestCase {
              model: " world\")", ghost: "world",
              document: "print(\"hello, world\")"),
         // Length and lines.
-        Case(name: "short length caps at three words", before: "I think we should",
-             length: .short, model: " move the meeting to Friday", ghost: " move the meeting",
-             document: "I think we should move the meeting"),
+        Case(name: "short length caps at four words", before: "I think we should",
+             length: .short, model: " move the meeting to Friday", ghost: " move the meeting to",
+             document: "I think we should move the meeting to"),
         Case(name: "suggestion stops at the line end", before: "Best,",
              model: " Jane\nSent from my phone", ghost: " Jane",
              document: "Best, Jane"),
