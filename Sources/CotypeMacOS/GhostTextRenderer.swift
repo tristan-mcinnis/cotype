@@ -311,6 +311,7 @@ public final class GhostTextRenderer: CompletionRenderer {
         }
         ghostContent.lines = layout.lines.map { ($0.text, $0.xOffset) }
         ghostContent.metrics = metrics
+        ghostContent.textColor = field.textColor
         ghostContent.setAccessibilityValue(candidate)
         ghostContent.setAccessibilityHelp("Anchored completion preview: no caret position was available; Cotype will insert this at the caret.")
         ghostContent.needsDisplay = true
@@ -353,6 +354,7 @@ public final class GhostTextRenderer: CompletionRenderer {
         }
         ghostContent.lines = layout.lines.map { ($0.text, $0.xOffset) }
         ghostContent.metrics = metrics
+        ghostContent.textColor = geometry.textColor
         ghostContent.setAccessibilityValue(candidate)
         ghostContent.setAccessibilityHelp("The completion Cotype would insert with the accept key.")
         ghostContent.needsDisplay = true
@@ -396,6 +398,8 @@ public final class GhostTextRenderer: CompletionRenderer {
 final class GhostContentView: NSView {
     var lines: [(text: String, xOffset: CGFloat)] = []
     var metrics: GhostTextMetrics = .default
+    /// The host's own text colour; nil draws with the design token.
+    var textColor: NSColor?
 
     override var isFlipped: Bool { true }
 
@@ -414,7 +418,7 @@ final class GhostContentView: NSView {
         }
         let attrs: [NSAttributedString.Key: Any] = [
             .font: metrics.font,
-            .foregroundColor: House.NSColorToken.textPrimary
+            .foregroundColor: (textColor ?? House.NSColorToken.textPrimary)
                 .withAlphaComponent(GhostTextRenderer.ghostAlpha),
             .paragraphStyle: clippingParagraphStyle,
         ]

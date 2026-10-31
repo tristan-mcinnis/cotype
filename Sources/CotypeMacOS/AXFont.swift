@@ -1,5 +1,13 @@
 import AppKit
+import ApplicationServices
 import Foundation
+
+/// What one Accessibility attributed-string read tells us about the text under
+/// the caret: its font and its colour. Both come from the same single read.
+struct AXTextStyle {
+    var font: NSFont?
+    var color: NSColor?
+}
 
 /// Decodes the font a host attaches to an Accessibility attributed string.
 ///
@@ -27,6 +35,14 @@ enum AXFontDecoder {
     static let sizeKey = "AXFontSize"
     static let boldKey = "AXFontBold"
     static let italicKey = "AXFontItalic"
+
+    /// The attribute name Accessibility uses for the run's text colour. Its value
+    /// is a `CGColor`; Cocoa-decoded hosts use `.foregroundColor` with an `NSColor`.
+    static let axForegroundColorAttributeName = kAXForegroundColorTextAttribute.takeUnretainedValue() as String
+
+    /// A host colour fainter than this is treated as "no colour": a ghost drawn
+    /// from it would be invisible, so the design token is the better choice.
+    static let minimumTextColorAlpha: CGFloat = 0.5
 
     /// Every key a font dictionary (or a flattened run) can carry.
     static let dictionaryKeys = [nameKey, familyKey, sizeKey, boldKey, italicKey]
@@ -69,6 +85,39 @@ enum AXFontDecoder {
     static func font(fromFontValue value: Any?) -> NSFont? {
         if let cocoa = cocoaFont(value) { return cocoa }
         return font(fromAXFontDictionary: value)
+    }
+
+    // MARK: - Text colour
+
+    /// The font and colour of the first run, from one attributed string.
+    static func style(from attributed: NSAttributedString) -> AXTextStyle? {
+        guard attributed.length > 0 else { return nil }
+        let attributes = attributed.attributes(at: 0, effectiveRange: nil)
+        let style = AXTextStyle(
+            font: font(fromAttributes: attributes),
+            color: textColor(fromAttributes: attributes)
+        )
+        return style.font == nil && style.color == nil ? nil : style
+    }
+
+    /// Decode one run's foreground colour. Cocoa `.foregroundColor` wins when it
+    /// holds an `NSColor`; otherwise the Accessibility `CGColor` is read. The
+    /// result is in sRGB, or nil when the colour is missing or not usable.
+    static func textColor(fromAttributes attributes: [NSAttributedString.Key: Any]) -> NSColor? {
+        if let color = usableTextColor(attributes[.foregroundColor] as? NSColor) { return color }
+        let value = attributes[NSAttributedString.Key(axForegroundColorAttributeName)]
+        guard let value, CFGetTypeID(value as CFTypeRef) == CGColor.typeID else { return nil }
+        // The type id was just checked, so this cast cannot fail.
+        return usableTextColor(NSColor(cgColor: value as! CGColor))
+    }
+
+    /// The colour in sRGB when a host reported one that can be drawn: opaque
+    /// enough to be real text, and convertible (pattern colours are not).
+    static func usableTextColor(_ color: NSColor?) -> NSColor? {
+        guard let srgb = color?.usingColorSpace(.sRGB),
+              srgb.alphaComponent >= minimumTextColorAlpha
+        else { return nil }
+        return srgb
     }
 
     // MARK: - Cocoa NSFont

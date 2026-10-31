@@ -43,17 +43,22 @@ public struct CaretGeometry {
     /// measured from the caret line's own AX character bounds. 0 means "not
     /// measured": the ghost then wraps at the field edge exactly as before.
     public var textInset: CGFloat
+    /// The host's own text colour under the caret, already checked as usable, or
+    /// nil when the host reports none. The ghost then uses the design token.
+    public var textColor: NSColor?
 
     public init(
         caretRect: CGRect,
         fieldBounds: CGRect,
         metrics: GhostTextMetrics = .default,
-        textInset: CGFloat = 0
+        textInset: CGFloat = 0,
+        textColor: NSColor? = nil
     ) {
         self.caretRect = caretRect
         self.fieldBounds = fieldBounds
         self.metrics = metrics
         self.textInset = textInset
+        self.textColor = textColor
     }
 }
 
@@ -73,10 +78,13 @@ public protocol InlineCaretGeometryProvider {
 public struct CaretFieldGeometry {
     public var fieldBounds: CGRect
     public var metrics: GhostTextMetrics
+    /// The host's own text colour, as on `CaretGeometry`.
+    public var textColor: NSColor?
 
-    public init(fieldBounds: CGRect, metrics: GhostTextMetrics) {
+    public init(fieldBounds: CGRect, metrics: GhostTextMetrics, textColor: NSColor? = nil) {
         self.fieldBounds = fieldBounds
         self.metrics = metrics
+        self.textColor = textColor
     }
 }
 
@@ -168,10 +176,10 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
         // resolved line box is then fitted to the caret's own measured line box:
         // that is what makes the ghost's baseline match the text under it, whether
         // or not the host named the right font.
-        let font = range.flatMap {
-            attributedFontMetrics(of: focused, range: $0, documentLength: documentLength)
+        let style = range.flatMap {
+            attributedTextStyle(of: focused, range: $0, documentLength: documentLength)
         }
-        let base = font.map(GhostTextMetrics.init(font:)) ?? GhostTextMetrics.default
+        let base = style?.font.map(GhostTextMetrics.init(font:)) ?? GhostTextMetrics.default
         let metrics = base.aligningLineBox(toMeasuredHeight: caretRect.height)
 
         // The text column's leading edge, measured from the caret line's character
@@ -197,7 +205,8 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
             caretRect: caretRect,
             fieldBounds: fieldBounds,
             metrics: metrics,
-            textInset: textInset
+            textInset: textInset,
+            textColor: style?.color
         )
     }
 
@@ -210,16 +219,16 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
               let focused = AXFocusedEditorResolver.resolve(in: app),
               let fieldBounds = frameAttribute(of: focused)
         else { return nil }
-        let metrics = selectedRange(of: focused)
+        let style = selectedRange(of: focused)
             .flatMap {
-                attributedFontMetrics(
+                attributedTextStyle(
                     of: focused,
                     range: $0,
                     documentLength: valueLength(of: focused)
                 )
             }
-            .map(GhostTextMetrics.init(font:)) ?? .default
-        return CaretFieldGeometry(fieldBounds: fieldBounds, metrics: metrics)
+        let metrics = style?.font.map(GhostTextMetrics.init(font:)) ?? .default
+        return CaretFieldGeometry(fieldBounds: fieldBounds, metrics: metrics, textColor: style?.color)
     }
 
     /// The caret-rect ladder. Steps are closures so they are evaluated lazily:
@@ -494,16 +503,17 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
     /// the caret (or the first after it at document start) — to read the font the
     /// user is actually typing with. The caret-bounds lookup above still uses the
     /// real caret range. Returns nil when the host exposes no attributed text
-    /// (common in web/Electron) or no decodable font on it.
+    /// (common in web/Electron) or no decodable font or colour on it.
     ///
     /// The font may arrive as a Cocoa `NSFont` or as the standard Accessibility
-    /// `AXFont` dictionary; `AXFontDecoder` handles both. Only font attributes are
-    /// read here — never the characters.
-    private func attributedFontMetrics(
+    /// `AXFont` dictionary; `AXFontDecoder` handles both. The text colour comes
+    /// from the same read, so it costs no extra round trip. Only font and colour
+    /// attributes are read here, never the characters.
+    private func attributedTextStyle(
         of element: AXUIElement,
         range: CFRange,
         documentLength: Int
-    ) -> NSFont? {
+    ) -> AXTextStyle? {
         // Prefer probing the character before the caret so the ghost font matches
         // the text under the insertion point.
         let probe = Self.fontProbeRange(for: range, documentLength: documentLength)
@@ -523,7 +533,7 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
               let attributed = value as? NSAttributedString
         else { return nil }
 
-        return AXFontDecoder.font(from: attributed)
+        return AXFontDecoder.style(from: attributed)
     }
 
     // MARK: - Text column inset
