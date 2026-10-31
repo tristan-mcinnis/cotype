@@ -3,6 +3,22 @@ import AppKit
 import CotypeCore
 import HouseDesign
 
+/// How long the renderer keeps asking for caret geometry after a miss before it
+/// gives up. Electron editors often publish the caret a moment after the key
+/// that moved it, so one nil is not yet a failure. The total stays well under
+/// the point where a late ghost would feel wrong.
+public struct CaretRetryPlan: Equatable, Sendable {
+    /// Seconds to wait before each further attempt after the first.
+    public var delays: [TimeInterval]
+
+    public init(delays: [TimeInterval]) {
+        self.delays = delays
+    }
+
+    public static let standard = CaretRetryPlan(delays: [0.03, 0.06, 0.12])
+    public static let none = CaretRetryPlan(delays: [])
+}
+
 /// A transparent, non-activating, inline ghost-text overlay.
 ///
 /// This is the Cotypist-style completion renderer: the candidate is drawn as dim
@@ -17,7 +33,8 @@ import HouseDesign
 ///   focus,
 /// - is transparent (`isOpaque = false`, clear background, `hasShadow = false`),
 /// - only appears when the caret rect and field bounds resolve from AX; if they
-///   cannot (laggy web/Electron editors), it hides rather than guessing.
+///   cannot (laggy web/Electron editors), it retries briefly (`CaretRetryPlan`)
+///   and then hides rather than guessing.
 ///
 /// When an editor exposes text + selection but NOT caret geometry (e.g. Ghostty —
 /// AXTextArea with a readable AXValue/selection but no `kAXBoundsForRange`), there
@@ -43,6 +60,8 @@ public final class GhostTextRenderer: CompletionRenderer {
     private let maxLines: Int
     /// Read at draw time so a Settings toggle applies to the next suggestion.
     private let fallbackEnabled: () -> Bool
+    private let caretRetry: CaretRetryPlan
+    private let retryScheduler: (TimeInterval, @escaping () -> Void) -> Void
 
     /// True when the visible ghost is the anchored fallback (no caret position).
     /// Exposed for tests and for the accessibility description.
@@ -53,11 +72,17 @@ public final class GhostTextRenderer: CompletionRenderer {
         maxLines: Int = 3,
         fallbackEnabled: @escaping () -> Bool = {
             UserDefaults.standard.object(forKey: GhostTextRenderer.fallbackPreviewKey) as? Bool ?? false
+        },
+        caretRetry: CaretRetryPlan = .standard,
+        retryScheduler: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
         }
     ) {
         self.geometryProvider = geometryProvider
         self.maxLines = maxLines
         self.fallbackEnabled = fallbackEnabled
+        self.caretRetry = caretRetry
+        self.retryScheduler = retryScheduler
         ghostContent = GhostContentView()
 
         window = NSWindow(
@@ -126,6 +151,9 @@ public final class GhostTextRenderer: CompletionRenderer {
     private let stateLock = NSLock()
     private var pendingAction: PendingAction?
     private var redrawScheduled = false
+    /// Bumped by every present/clear. A caret retry carries the value it was
+    /// started under and drops itself when a newer request has superseded it.
+    private var generation = 0
 
     private func setPending(_ action: PendingAction) {
         // Coalesce per-token updates into at most one redraw per main-runloop
@@ -133,6 +161,7 @@ public final class GhostTextRenderer: CompletionRenderer {
         // while AppKit drains redraws on the main thread.
         stateLock.lock()
         pendingAction = action
+        generation &+= 1
         let shouldSchedule = !redrawScheduled
         if shouldSchedule { redrawScheduled = true }
         stateLock.unlock()
@@ -147,25 +176,44 @@ public final class GhostTextRenderer: CompletionRenderer {
         stateLock.lock()
         redrawScheduled = false
         let action = pendingAction
+        let drainedGeneration = generation
         pendingAction = nil
         stateLock.unlock()
 
         switch action {
         case .show(let candidate):
-            // Fail closed at the last instant: if the generation/focus no longer
-            // matches, do not draw a stale ghost (a focus change could have
-            // happened between scheduling and this drain on the main queue).
-            if MainActor.assumeIsolated({ renderGuard?() ?? true }) {
-                show(candidate: candidate)
-                MainActor.assumeIsolated { onVisibilityChanged?(window.isVisible) }
-            } else {
-                hideWindow()
-                MainActor.assumeIsolated { onVisibilityChanged?(false) }
-            }
+            attemptShow(candidate, generation: drainedGeneration, remainingDelays: caretRetry.delays[...])
         case .hide, .none:
             hideWindow()
             MainActor.assumeIsolated { onVisibilityChanged?(false) }
         }
+    }
+
+    /// One draw attempt for a pending show. A caret miss hides the stale window
+    /// at once and schedules the next attempt; only the last attempt may fall
+    /// back or report `noCaretGeometry`.
+    private func attemptShow(_ candidate: String, generation: Int, remainingDelays: ArraySlice<TimeInterval>) {
+        // Fail closed at the last instant: if the generation/focus no longer
+        // matches, do not draw a stale ghost (a focus change could have
+        // happened between scheduling and this drain on the main queue).
+        guard MainActor.assumeIsolated({ renderGuard?() ?? true }) else {
+            hideWindow()
+            MainActor.assumeIsolated { onVisibilityChanged?(false) }
+            return
+        }
+        let outcome = draw(candidate: candidate, isFinalAttempt: remainingDelays.isEmpty)
+        MainActor.assumeIsolated { onVisibilityChanged?(window.isVisible) }
+        guard outcome == .caretMissing, let delay = remainingDelays.first else { return }
+        retryScheduler(delay) { [weak self] in
+            guard let self, self.isCurrent(generation) else { return }
+            self.attemptShow(candidate, generation: generation, remainingDelays: remainingDelays.dropFirst())
+        }
+    }
+
+    private func isCurrent(_ generation: Int) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return self.generation == generation
     }
 
     /// Order the overlay out only when it is actually on screen.
@@ -177,7 +225,17 @@ public final class GhostTextRenderer: CompletionRenderer {
 
     // MARK: - Main-thread UI
 
+    private enum DrawOutcome {
+        case finished
+        case caretMissing
+    }
+
+    /// A single attempt that ends in its final state, with no retry.
     func show(candidate: String) {
+        _ = draw(candidate: candidate, isFinalAttempt: true)
+    }
+
+    private func draw(candidate: String, isFinalAttempt: Bool) -> DrawOutcome {
         // Inline ghost text at the caret is the only thing Cotype draws by
         // default. When exact caret geometry is unavailable (laggy web/Electron
         // editors, terminals without `kAXBoundsForRange`) there is no correct
@@ -185,18 +243,25 @@ public final class GhostTextRenderer: CompletionRenderer {
         // an anchor. The opt-in fallback anchors to the focused field's own
         // bottom-left corner and is still inert, click-through ghost text.
         guard let geometry = geometryProvider?.caretGeometry() else {
+            // The old window sits at the old caret, so it goes even while we wait.
+            if !isFinalAttempt, geometryProvider != nil {
+                isFallbackPreview = false
+                hideWindow()
+                return .caretMissing
+            }
             if fallbackEnabled(), let field = (geometryProvider as? InlineFieldGeometryProvider)?.fieldGeometry() {
                 showFallback(candidate: candidate, field: field)
-                return
+                return .finished
             }
             CotypeLog.geometry.info("hide: no usable caret geometry")
             MainActor.assumeIsolated { onNotShown?(.noCaretGeometry) }
             isFallbackPreview = false
             hideWindow()
-            return
+            return .finished
         }
         isFallbackPreview = false
         showInline(candidate: candidate, geometry: geometry)
+        return .finished
     }
 
     /// Draw the candidate at a fixed anchor inside the focused field: the

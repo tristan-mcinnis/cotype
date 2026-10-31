@@ -125,7 +125,8 @@ final class VisiblePreviewAcceptanceTests: XCTestCase {
         renderer.onNotShown = { reasons.append($0) }
         renderer.renderGuard = { true }
         renderer.present("hello", for: CompletionRequest())
-        try? await Task.sleep(nanoseconds: 80_000_000)
+        let reported = await waitUntil { !reasons.isEmpty }
+        XCTAssertTrue(reported)
         XCTAssertFalse(renderer.isShowing)
         XCTAssertEqual(reasons, [.noCaretGeometry])
     }
@@ -162,7 +163,8 @@ final class VisiblePreviewAcceptanceTests: XCTestCase {
         renderer.onNotShown = { reasons.append($0) }
         renderer.renderGuard = { true }
         renderer.present("hello", for: CompletionRequest())
-        try? await Task.sleep(nanoseconds: 80_000_000)
+        let reported = await waitUntil { !reasons.isEmpty }
+        XCTAssertTrue(reported)
         XCTAssertFalse(renderer.isShowing)
         XCTAssertFalse(renderer.isFallbackPreview)
         XCTAssertEqual(reasons, [.ghostDoesNotFit])
