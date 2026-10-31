@@ -145,14 +145,14 @@ final class GhostTextColorDrawTests: XCTestCase {
             metrics: GhostTextMetrics(font: .monospacedSystemFont(ofSize: 12, weight: .regular)),
             textColor: color
         )
-        let renderer = GhostTextRenderer(geometryProvider: Fixed(geometry: geometry), caretRetry: .none)
-        renderer.show(candidate: "hello")
+        let renderer = GhostTextRenderer.synchronous(geometryProvider: Fixed(geometry: geometry))
+        renderer.present("hello")
         XCTAssertEqual(renderer.ghostContent.textColor, color)
 
         var plain = geometry
         plain.textColor = nil
-        let other = GhostTextRenderer(geometryProvider: Fixed(geometry: plain), caretRetry: .none)
-        other.show(candidate: "hello")
+        let other = GhostTextRenderer.synchronous(geometryProvider: Fixed(geometry: plain))
+        other.present("hello")
         XCTAssertNil(other.ghostContent.textColor)
         renderer.clear()
         other.clear()

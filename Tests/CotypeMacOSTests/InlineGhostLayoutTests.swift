@@ -501,11 +501,8 @@ final class GhostTextRendererTests: XCTestCase {
             fieldBounds: CGRect(x: 50, y: 150, width: 400, height: 200),
             metrics: metrics
         )
-        let renderer = GhostTextRenderer(
-            geometryProvider: FixedGeometry(geometry: geometry),
-            maxLines: 3
-        )
-        renderer.show(candidate: "hello")
+        let renderer = GhostTextRenderer.synchronous(geometryProvider: FixedGeometry(geometry: geometry))
+        renderer.present("hello")
 
         // The candidate is laid out as one inline line indented to the caret.
         XCTAssertEqual(renderer.ghostContent.lines.map(\.text), ["hello"])
@@ -524,11 +521,8 @@ final class GhostTextRendererTests: XCTestCase {
     func testDoesNotFallBackToMouseWhenGeometryUnavailable() {
         // No caret geometry: the renderer must NOT anchor to the mouse, must NOT
         // show a pane, and must NOT guess a field frame. It fails closed and hides.
-        let renderer = GhostTextRenderer(
-            geometryProvider: FixedGeometry(geometry: nil),
-            maxLines: 3
-        )
-        renderer.show(candidate: "hello")
+        let renderer = GhostTextRenderer.synchronous(geometryProvider: FixedGeometry(geometry: nil))
+        renderer.present("hello")
 
         // No caret geometry: no inline lines and the window is left hidden at the
         // origin, never repositioned to the mouse cursor or to a panel.
@@ -540,17 +534,16 @@ final class GhostTextRendererTests: XCTestCase {
     func testEmptyCandidateWithGeometryStillHides() {
         // An empty candidate must never leave a stale ghost or an empty box behind.
         let metrics = GhostTextMetrics(font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular))
-        let renderer = GhostTextRenderer(
+        let renderer = GhostTextRenderer.synchronous(
             geometryProvider: FixedGeometry(
                 geometry: CaretGeometry(
                     caretRect: CGRect(x: 100, y: 200, width: 0, height: 20),
                     fieldBounds: CGRect(x: 50, y: 150, width: 400, height: 200),
                     metrics: metrics
                 )
-            ),
-            maxLines: 3
+            )
         )
-        renderer.show(candidate: "")
+        renderer.present("")
         XCTAssertFalse(renderer.window.isVisible)
     }
 

@@ -6,16 +6,23 @@ import CotypeCore
 @MainActor
 final class CaretRetryTests: XCTestCase {
 
-    private final class ScriptedGeometry: InlineCaretGeometryProvider {
+    private final class ScriptedGeometry: InlineCaretGeometryProvider, InlineFieldGeometryProvider {
         var missesRemaining: Int
+        var field: CaretFieldGeometry?
         private(set) var calls = 0
+        private static let metrics = GhostTextMetrics(font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular))
         private let geometry = CaretGeometry(
             caretRect: CGRect(x: 100, y: 200, width: 0, height: 20),
             fieldBounds: CGRect(x: 50, y: 150, width: 400, height: 200),
-            metrics: GhostTextMetrics(font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular))
+            metrics: ScriptedGeometry.metrics
         )
 
-        init(misses: Int) { missesRemaining = misses }
+        init(misses: Int, fieldOnly: Bool = false) {
+            missesRemaining = misses
+            if fieldOnly {
+                field = CaretFieldGeometry(fieldBounds: CGRect(x: 50, y: 150, width: 400, height: 200), metrics: Self.metrics)
+            }
+        }
 
         func caretGeometry() -> CaretGeometry? {
             calls += 1
@@ -25,6 +32,8 @@ final class CaretRetryTests: XCTestCase {
             }
             return geometry
         }
+
+        func fieldGeometry() -> CaretFieldGeometry? { field }
     }
 
     /// Holds scheduled retries so a test fires them by hand, with no real delay.
@@ -43,6 +52,10 @@ final class CaretRetryTests: XCTestCase {
             guard !queue.isEmpty else { return }
             queue.removeFirst()()
         }
+
+        func fireAll() {
+            while !queue.isEmpty { fireNext() }
+        }
     }
 
     private struct Rig {
@@ -57,15 +70,22 @@ final class CaretRetryTests: XCTestCase {
         var values: [T] = []
     }
 
-    private func makeRig(misses: Int, plan: CaretRetryPlan = .standard) -> Rig {
-        let geometry = ScriptedGeometry(misses: misses)
+    /// The coalesced drain runs inline, so the first attempt has happened by the
+    /// time `present` returns; only retries wait for the manual scheduler.
+    private func makeRig(
+        misses: Int,
+        plan: CaretRetryPlan = .standard,
+        fallback: Bool = false
+    ) -> Rig {
+        let geometry = ScriptedGeometry(misses: misses, fieldOnly: fallback)
         let scheduler = ManualScheduler()
         let renderer = GhostTextRenderer(
             geometryProvider: geometry,
             maxLines: 3,
-            fallbackEnabled: { false },
+            fallbackEnabled: { fallback },
             caretRetry: plan,
-            retryScheduler: { scheduler.schedule($0, $1) }
+            retryScheduler: { scheduler.schedule($0, $1) },
+            redrawScheduler: { $0() }
         )
         let notShown = Recorder<NotShownReason>()
         let visibility = Recorder<Bool>()
@@ -74,20 +94,15 @@ final class CaretRetryTests: XCTestCase {
         return Rig(renderer: renderer, geometry: geometry, scheduler: scheduler, notShown: notShown, visibility: visibility)
     }
 
-    /// Pump the main queue so the coalesced drain runs.
-    private func drain() async {
-        for _ in 0..<5 { try? await Task.sleep(nanoseconds: 10_000_000) }
-    }
-
     func testStandardPlanStaysUnderTheLatencyBudget() {
-        XCTAssertEqual(CaretRetryPlan.standard.delays, [0.03, 0.06, 0.12])
+        XCTAssertFalse(CaretRetryPlan.standard.delays.isEmpty)
         XCTAssertLessThan(CaretRetryPlan.standard.delays.reduce(0, +), 0.25)
     }
 
-    func testTwoMissesThenGeometryEndsShownAndReportsNoFailure() async {
+    func testTwoMissesThenGeometryEndsShownAndReportsNoFailure() {
         let rig = makeRig(misses: 2)
-        rig.renderer.present("hello", for: CompletionRequest())
-        await drain()
+        defer { rig.renderer.clear() }
+        rig.renderer.present("hello")
         XCTAssertFalse(rig.renderer.isShowing, "nothing is drawn while the caret is still unknown")
         XCTAssertEqual(rig.scheduler.pendingCount, 1)
 
@@ -97,63 +112,103 @@ final class CaretRetryTests: XCTestCase {
 
         XCTAssertTrue(rig.renderer.isShowing)
         XCTAssertEqual(rig.renderer.ghostContent.lines.map(\.text), ["hello"])
-        XCTAssertEqual(rig.scheduler.delays, [0.03, 0.06])
+        XCTAssertEqual(rig.scheduler.delays, Array(CaretRetryPlan.standard.delays.prefix(2)))
         XCTAssertTrue(rig.notShown.values.isEmpty)
         XCTAssertEqual(rig.visibility.values.last, true)
-        rig.renderer.clear()
     }
 
-    func testAlwaysNilReportsNotShownOnceAndStaysHidden() async {
+    func testAlwaysNilReportsNotShownOnceAndStaysHidden() {
         let rig = makeRig(misses: .max)
-        rig.renderer.present("hello", for: CompletionRequest())
-        await drain()
+        rig.renderer.present("hello")
         XCTAssertTrue(rig.notShown.values.isEmpty, "no verdict until the last attempt has run")
 
-        while rig.scheduler.pendingCount > 0 { rig.scheduler.fireNext() }
+        rig.scheduler.fireAll()
 
-        XCTAssertEqual(rig.geometry.calls, 4)
+        XCTAssertEqual(rig.geometry.calls, CaretRetryPlan.standard.delays.count + 1)
         XCTAssertEqual(rig.scheduler.delays, CaretRetryPlan.standard.delays)
         XCTAssertEqual(rig.notShown.values, [.noCaretGeometry])
         XCTAssertFalse(rig.renderer.isShowing)
-        XCTAssertEqual(rig.visibility.values.last, false)
+        XCTAssertFalse(rig.visibility.values.contains(true))
     }
 
-    func testNoRetryPlanReportsAtTheFirstMiss() async {
+    func testNoRetryPlanReportsAtTheFirstMiss() {
         let rig = makeRig(misses: .max, plan: .none)
-        rig.renderer.present("hello", for: CompletionRequest())
-        await drain()
+        rig.renderer.present("hello")
         XCTAssertEqual(rig.notShown.values, [.noCaretGeometry])
         XCTAssertEqual(rig.scheduler.pendingCount, 0)
     }
 
-    func testMissHidesTheStaleGhostAtOnce() async {
+    func testVisibleGhostStaysUpThroughANonFinalMiss() {
         let rig = makeRig(misses: 0)
-        rig.renderer.present("hello", for: CompletionRequest())
-        await drain()
+        defer { rig.renderer.clear() }
+        rig.renderer.present("hello")
         XCTAssertTrue(rig.renderer.isShowing)
 
         rig.geometry.missesRemaining = 1
-        rig.renderer.present("hello there", for: CompletionRequest())
-        await drain()
+        rig.renderer.present("hello there")
 
-        XCTAssertFalse(rig.renderer.isShowing, "the old position is wrong, so the window must not linger")
-        XCTAssertEqual(rig.visibility.values.last, false)
+        XCTAssertTrue(rig.renderer.isShowing, "a late caret must not flicker the ghost off")
+        XCTAssertFalse(rig.visibility.values.contains(false), "the accept key stays with Cotype while retrying")
         XCTAssertEqual(rig.scheduler.pendingCount, 1)
 
         rig.scheduler.fireNext()
         XCTAssertTrue(rig.renderer.isShowing)
         XCTAssertEqual(rig.renderer.ghostContent.lines.map(\.text), ["hello there"])
-        rig.renderer.clear()
+        XCTAssertTrue(rig.notShown.values.isEmpty)
     }
 
-    func testClearDuringRetryCancelsIt() async {
+    func testVisibleGhostHidesOnlyAtTheFinalMiss() {
+        let rig = makeRig(misses: 0)
+        rig.renderer.present("hello")
+        rig.geometry.missesRemaining = .max
+        rig.renderer.present("hello there")
+
+        for _ in 1..<CaretRetryPlan.standard.delays.count { rig.scheduler.fireNext() }
+        XCTAssertTrue(rig.renderer.isShowing)
+        XCTAssertTrue(rig.notShown.values.isEmpty)
+
+        rig.scheduler.fireNext()
+        XCTAssertFalse(rig.renderer.isShowing)
+        XCTAssertEqual(rig.visibility.values.last, false)
+        XCTAssertEqual(rig.notShown.values, [.noCaretGeometry])
+    }
+
+    func testFallbackShowsAtOnceAndStaysVisibleAcrossAnUpdate() {
+        let rig = makeRig(misses: .max, fallback: true)
+        defer { rig.renderer.clear() }
+        rig.renderer.present("hello")
+        XCTAssertTrue(rig.renderer.isShowing, "the fallback must not wait for the retries")
+        XCTAssertTrue(rig.renderer.isFallbackPreview)
+
+        rig.renderer.present("hello there")
+        XCTAssertTrue(rig.renderer.isShowing)
+        XCTAssertEqual(rig.renderer.ghostContent.lines.map(\.text), ["hello there"])
+
+        rig.scheduler.fireAll()
+        XCTAssertTrue(rig.renderer.isShowing)
+        XCTAssertTrue(rig.renderer.isFallbackPreview)
+        XCTAssertFalse(rig.visibility.values.contains(false), "a Tab during any update must reach Cotype, not the shell")
+        XCTAssertTrue(rig.notShown.values.isEmpty)
+    }
+
+    func testFallbackUpgradesToInlineWhenTheCaretResolves() {
+        let rig = makeRig(misses: 1, fallback: true)
+        defer { rig.renderer.clear() }
+        rig.renderer.present("hello")
+        XCTAssertTrue(rig.renderer.isFallbackPreview)
+
+        rig.scheduler.fireNext()
+        XCTAssertTrue(rig.renderer.isShowing)
+        XCTAssertFalse(rig.renderer.isFallbackPreview)
+        XCTAssertEqual(rig.renderer.ghostContent.lines.first?.xOffset, 50, "the inline ghost sits at the caret")
+    }
+
+    func testClearDuringRetryCancelsIt() {
         let rig = makeRig(misses: .max)
-        rig.renderer.present("hello", for: CompletionRequest())
-        await drain()
+        rig.renderer.present("hello")
         let callsBefore = rig.geometry.calls
 
         rig.renderer.clear()
-        await drain()
         rig.scheduler.fireNext()
 
         XCTAssertEqual(rig.geometry.calls, callsBefore, "a cleared show must not look for the caret again")
@@ -162,14 +217,13 @@ final class CaretRetryTests: XCTestCase {
         XCTAssertFalse(rig.renderer.isShowing)
     }
 
-    func testNewerPresentSupersedesTheOldRetry() async {
+    func testNewerPresentSupersedesTheOldRetry() {
         let rig = makeRig(misses: 1)
-        rig.renderer.present("old", for: CompletionRequest())
-        await drain()
+        defer { rig.renderer.clear() }
+        rig.renderer.present("old")
         XCTAssertEqual(rig.scheduler.pendingCount, 1)
 
-        rig.renderer.present("new", for: CompletionRequest())
-        await drain()
+        rig.renderer.present("new")
         XCTAssertEqual(rig.renderer.ghostContent.lines.map(\.text), ["new"])
         let callsBefore = rig.geometry.calls
 
@@ -178,15 +232,13 @@ final class CaretRetryTests: XCTestCase {
         XCTAssertEqual(rig.geometry.calls, callsBefore, "the superseded retry must not draw")
         XCTAssertEqual(rig.renderer.ghostContent.lines.map(\.text), ["new"])
         XCTAssertTrue(rig.notShown.values.isEmpty)
-        rig.renderer.clear()
     }
 
-    func testRenderGuardIsRecheckedBeforeEachRetry() async {
+    func testRenderGuardIsRecheckedBeforeEachRetry() {
         let rig = makeRig(misses: .max)
         var allowed = true
         rig.renderer.renderGuard = { allowed }
-        rig.renderer.present("hello", for: CompletionRequest())
-        await drain()
+        rig.renderer.present("hello")
         let callsBefore = rig.geometry.calls
 
         allowed = false

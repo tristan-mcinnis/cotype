@@ -217,26 +217,26 @@ final class NotShownReasonTests: XCTestCase {
     }
 
     func testRendererReportsGhostDoesNotFit() {
-        let renderer = GhostTextRenderer(geometryProvider: FixedGeometry())
+        let renderer = GhostTextRenderer.synchronous(geometryProvider: FixedGeometry())
         var reasons: [NotShownReason] = []
         renderer.onNotShown = { reasons.append($0) }
-        renderer.show(candidate: "")
+        renderer.present("")
         XCTAssertEqual(reasons, [.ghostDoesNotFit])
     }
 
     func testRendererReportsNoCaretGeometry() {
-        let renderer = GhostTextRenderer(geometryProvider: nil)
+        let renderer = GhostTextRenderer.synchronous(geometryProvider: nil)
         var reasons: [NotShownReason] = []
         renderer.onNotShown = { reasons.append($0) }
-        renderer.show(candidate: "hello")
+        renderer.present("hello")
         XCTAssertEqual(reasons, [.noCaretGeometry])
     }
 
     func testRendererReportsNothingWhenTheGhostIsDrawn() {
-        let renderer = GhostTextRenderer(geometryProvider: FixedGeometry())
+        let renderer = GhostTextRenderer.synchronous(geometryProvider: FixedGeometry())
         var reasons: [NotShownReason] = []
         renderer.onNotShown = { reasons.append($0) }
-        renderer.show(candidate: "hello")
+        renderer.present("hello")
         XCTAssertTrue(reasons.isEmpty)
         renderer.clear()
     }

@@ -385,11 +385,8 @@ final class GhostTextRendererInsetTests: XCTestCase {
     }
 
     func testRendererWrapsAtTheGeometryInsetInsideTheField() {
-        let renderer = GhostTextRenderer(
-            geometryProvider: FixedGeometry(geometry: geometry(inset: 12)),
-            maxLines: 3
-        )
-        renderer.show(candidate: String(repeating: "word ", count: 30))
+        let renderer = GhostTextRenderer.synchronous(geometryProvider: FixedGeometry(geometry: geometry(inset: 12)))
+        renderer.present(String(repeating: "word ", count: 30))
 
         XCTAssertGreaterThan(renderer.ghostContent.lines.count, 1, "the long candidate must wrap")
         XCTAssertEqual(renderer.ghostContent.lines[1].xOffset, 12)
@@ -403,17 +400,16 @@ final class GhostTextRendererInsetTests: XCTestCase {
         let fitted = mono.aligningLineBox(toMeasuredHeight: 14)
         XCTAssertEqual(fitted.baselineOffset, 11, accuracy: 0.001)
 
-        let renderer = GhostTextRenderer(
+        let renderer = GhostTextRenderer.synchronous(
             geometryProvider: FixedGeometry(
                 geometry: CaretGeometry(
                     caretRect: CGRect(x: 100, y: 200, width: 0, height: 14),
                     fieldBounds: CGRect(x: 50, y: 150, width: 300, height: 200),
                     metrics: fitted
                 )
-            ),
-            maxLines: 3
+            )
         )
-        renderer.show(candidate: "hello")
+        renderer.present("hello")
         XCTAssertEqual(renderer.window.frame.height, 14, accuracy: 0.001)
         XCTAssertEqual(renderer.ghostContent.metrics.baselineOffset, 11, accuracy: 0.001)
         renderer.window.orderOut(nil)
@@ -431,8 +427,8 @@ final class GhostTextRendererInsetTests: XCTestCase {
         let field = FieldOnly(
             field: CaretFieldGeometry(fieldBounds: CGRect(x: 50, y: 150, width: 300, height: 200), metrics: metrics)
         )
-        let renderer = GhostTextRenderer(geometryProvider: field, maxLines: 1, fallbackEnabled: { true })
-        renderer.show(candidate: "hello world")
+        let renderer = GhostTextRenderer.synchronous(geometryProvider: field, maxLines: 1, fallbackEnabled: { true })
+        renderer.present("hello world")
 
         XCTAssertTrue(renderer.isFallbackPreview)
         XCTAssertEqual(renderer.ghostContent.lines.first?.xOffset, 2, "the fallback anchors 2 pt inside the field")

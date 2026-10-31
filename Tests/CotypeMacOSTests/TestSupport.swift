@@ -131,3 +131,25 @@ struct FixedCaretGeometry: InlineCaretGeometryProvider {
 func makeWebsiteRulesStore(_ name: String = "website-rules") -> WebsiteRulesStore {
     WebsiteRulesStore(fileURL: tempFileURL(name))
 }
+
+extension GhostTextRenderer {
+    /// A renderer whose `present` draws before it returns and never retries the
+    /// caret, so a test reads the final state straight after the call.
+    static func synchronous(
+        geometryProvider: InlineCaretGeometryProvider?,
+        maxLines: Int = 3,
+        fallbackEnabled: @escaping () -> Bool = { false }
+    ) -> GhostTextRenderer {
+        GhostTextRenderer(
+            geometryProvider: geometryProvider,
+            maxLines: maxLines,
+            fallbackEnabled: fallbackEnabled,
+            caretRetry: .none,
+            redrawScheduler: { $0() }
+        )
+    }
+
+    func present(_ candidate: String) {
+        present(candidate, for: CompletionRequest())
+    }
+}

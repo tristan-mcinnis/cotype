@@ -80,9 +80,9 @@ final class GhostContentViewDrawTests: XCTestCase {
             fieldBounds: CGRect(x: 50, y: 150, width: 400, height: 200),
             metrics: metrics
         )
-        let renderer = GhostTextRenderer(geometryProvider: Fixed(geometry: geometry), maxLines: 3)
+        let renderer = GhostTextRenderer.synchronous(geometryProvider: Fixed(geometry: geometry))
         for text in ["hello world candidate", "hi", "draft text"] {
-            renderer.show(candidate: text)
+            renderer.present(text)
             XCTAssertEqual(renderer.ghostContent.lines.map(\.text), [text])
             XCTAssertTrue(renderer.isShowing, "'\(text)' must be visible after show")
             XCTAssertGreaterThan(renderer.window.frame.width, 0)
