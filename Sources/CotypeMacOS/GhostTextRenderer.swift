@@ -33,9 +33,8 @@ public struct CaretRetryPlan: Equatable, Sendable {
 ///   focus,
 /// - is transparent (`isOpaque = false`, clear background, `hasShadow = false`),
 /// - only appears when the caret rect and field bounds resolve from AX; if they
-///   cannot (laggy web/Electron editors), it retries briefly (`CaretRetryPlan`),
-///   keeping an already visible ghost up meanwhile, and then hides rather than
-///   guessing.
+///   cannot (laggy web/Electron editors), it hides any stale ghost, retries
+///   briefly (`CaretRetryPlan`), and then stays hidden rather than guessing.
 ///
 /// When an editor exposes text + selection but NOT caret geometry (e.g. Ghostty —
 /// AXTextArea with a readable AXValue/selection but no `kAXBoundsForRange`), there
