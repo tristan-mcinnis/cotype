@@ -320,8 +320,10 @@ final class EndToEndPipelineTests: XCTestCase {
     /// Keystroke-to-ghost latency proxy: one typed key to a visible ghost,
     /// through the production debounce, controller, prompt, engine stack and
     /// sanitizer, against the fake llama-server (no model time). Prints the
-    /// median and p90 so a pass can record before/after numbers.
-    func testKeystrokeToGhostLatency() async {
+    /// median and p90 so a pass can record before/after numbers. It takes
+    /// about 3 s, so it runs only with COTYPE_BENCH=1.
+    func testKeystrokeToGhostLatency() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["COTYPE_BENCH"] == "1", "set COTYPE_BENCH=1 to run the latency benchmark")
         var samples: [Double] = []
         for _ in 0..<25 {
             let rig = Rig(before: "Let me get back to you by")
@@ -337,7 +339,8 @@ final class EndToEndPipelineTests: XCTestCase {
         let median = samples[samples.count / 2]
         let p90 = samples[Int(Double(samples.count) * 0.9)]
         print(String(format: "COTYPE_LATENCY keystroke_to_ghost_ms median=%.1f p90=%.1f n=%d", median, p90, samples.count))
-        XCTAssertLessThan(median, 1_000, "keystroke-to-ghost proxy regressed past one second")
+        let budget = CompletionController.defaultDebounceInterval * 1_000 + 100
+        XCTAssertLessThan(median, budget, "keystroke-to-ghost proxy exceeds the debounce plus 100 ms")
     }
 
     // MARK: Helpers
