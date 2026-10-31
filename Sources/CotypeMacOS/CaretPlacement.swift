@@ -139,6 +139,11 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
     /// have already failed.
     static let textMarkerAncestorLimit = 3
 
+    /// The text-marker attribute names as literals: the SDK constants exist only
+    /// in newer macOS SDKs, and the names themselves are stable AX API.
+    static let selectedTextMarkerRangeAttribute = "AXSelectedTextMarkerRange"
+    static let boundsForTextMarkerRangeAttribute = "AXBoundsForTextMarkerRange"
+
     public func caretGeometry() -> CaretGeometry? {
         // AX reads are thread-sensitive; callers are already on the main actor.
         guard AXIsProcessTrusted(),
@@ -273,7 +278,7 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
         let rawAnchor = precedingCharacterCaretRect(of: element, caretRange: caretRange)
         let zero = rawZero.flatMap { Self.isUsableCaretRect($0, inside: fieldBounds) ? $0 : nil }
         let anchor = rawAnchor.flatMap { Self.isUsableCaretRect($0, inside: fieldBounds) ? $0 : nil }
-        let isWeb = attribute(element, kAXSelectedTextMarkerRangeAttribute) != nil
+        let isWeb = attribute(element, Self.selectedTextMarkerRangeAttribute) != nil
         if let chosen = Self.reconcileCaret(zeroLength: zero, anchor: anchor, isWebContent: isWeb) {
             if log { CotypeLog.geometry.debug("caret via \(chosen.strategy.rawValue, privacy: .public)") }
             return chosen.rect
@@ -422,12 +427,12 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
     /// back: the attribute name is shared by other AX object types, and handing
     /// garbage to the parameterized call would only fail silently.
     private func boundsForTextMarkerRange(of element: AXUIElement) -> CGRect? {
-        guard let markerRange = attribute(element, kAXSelectedTextMarkerRangeAttribute),
+        guard let markerRange = attribute(element, Self.selectedTextMarkerRangeAttribute),
               CFGetTypeID(markerRange) == AXTextMarkerRangeGetTypeID()
         else { return nil }
         return parameterizedRect(
             element,
-            attribute: kAXBoundsForTextMarkerRangeParameterizedAttribute as CFString,
+            attribute: Self.boundsForTextMarkerRangeAttribute as CFString,
             parameter: markerRange
         )
     }
