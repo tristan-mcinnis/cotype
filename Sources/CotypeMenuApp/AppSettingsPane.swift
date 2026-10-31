@@ -488,7 +488,7 @@ private struct WebsiteRulesCard: View {
                     if editingHost == entry.host {
                         SlateDivider()
                         SlateFormBlock {
-                            SlateField(label: nil) {
+                            SlateField(label: "Instructions for \(entry.host)") {
                                 TextEditor(text: $draftInstructions)
                                     .font(House.TypeToken.code)
                                     .scrollContentBackground(.hidden)
@@ -503,7 +503,7 @@ private struct WebsiteRulesCard: View {
                                             .strokeBorder(House.ColorToken.stroke, lineWidth: House.hairline)
                                     )
                             } helper: {
-                                SlateProse("Instructions for \(entry.host). Sent as the system message in the Instructions prompt style, and only while this host is the trusted foreground identity. The Continuation style does not send them.", tertiary: true)
+                                SlateProse("Sent as the system message in the Instructions prompt style, and only while this host is the trusted foreground identity. The Continuation style does not send them.", tertiary: true)
                             }
                         } actions: {
                             Button("Save") { saveInstructions(entry.host) }

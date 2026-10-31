@@ -24,7 +24,7 @@ public final class CompletionController: ObservableObject {
 
     @Published public private(set) var phase: Phase = .idle
     @Published public private(set) var currentCandidate: String = ""
-    @Published public private(set) var lastError: String?
+    @Published public internal(set) var lastError: String?
     @Published public private(set) var storageWarning: String?
     /// Whether the ghost overlay is actually on screen, as the production
     /// renderer reports it after AppKit applied a draw or hide. A candidate can
@@ -41,12 +41,12 @@ public final class CompletionController: ObservableObject {
     /// Per-website enable/instruction rules. Read at trigger and revalidated at
     /// accept; a host is only trusted when the browser window proves it.
     public let websiteRules: WebsiteRulesStore
-    private let browserDomainProvider: BrowserDomainProviding
+    let browserDomainProvider: BrowserDomainProviding
     private let powerStateProvider: PowerStateProviding
     private let notShown: NotShownStore?
     private var notShownRecorded: Set<NotShownReason> = []
 
-    private let inserter: CompletionInserter
+    let inserter: CompletionInserter
     /// One overlay renderer for the controller's lifetime. Reusing it prevents
     /// completed generations from leaving separate NSWindow instances onscreen.
     private let overlayRenderer: CompletionRenderer
@@ -68,17 +68,17 @@ public final class CompletionController: ObservableObject {
     /// visibility. Production always can; a renderer that cannot is treated as
     /// showing what it was told to draw (and the controller still requires a
     /// committed ghost). Reset to the fail-closed default per generation.
-    private var rendererReportsVisibility = true
-    private var pipelineTask: Task<Void, Never>?
+    var rendererReportsVisibility = true
+    var pipelineTask: Task<Void, Never>?
 
-    private var activeAppIdentifier = "unknown"
-    private var activeFocusTarget: FocusTarget?
-    private var activePrefix = ""
+    var activeAppIdentifier = "unknown"
+    var activeFocusTarget: FocusTarget?
+    var activePrefix = ""
     /// The normalised website host captured at trigger time for a browser. At
     /// accept the same host must still be shown, otherwise the site rule that
     /// allowed this candidate no longer applies and nothing is inserted.
-    private var activeWebsiteDomain: String?
-    private var flow = CompletionFlow()
+    var activeWebsiteDomain: String?
+    var flow = CompletionFlow()
     private var frontmostChangeObserver: NSObjectProtocol?
 
     // MARK: - Typing interaction loop
@@ -86,7 +86,7 @@ public final class CompletionController: ObservableObject {
     /// The pure interaction loop state machine. It decides *when* to generate,
     /// cancel, accept, type-through, and dismiss; this controller runs the
     /// resulting effects (timers, pipeline, insertion).
-    private var interaction = CompletionInteraction()
+    var interaction = CompletionInteraction()
 
     /// Pause window before a generation auto-triggers after typing stops.
     /// TabType defaults to 90 ms and cotabby/KeyType to 15-55 ms; the local
@@ -110,22 +110,22 @@ public final class CompletionController: ObservableObject {
     private var cooldownTask: Task<Void, Never>?
     /// The last ghost shown in the overlay, so `refreshFromInteraction` only
     /// re-renders when the ghost actually changes (type-through shrinks it).
-    private var lastRenderedGhost: String?
+    var lastRenderedGhost: String?
     /// The generation whose overlay has actually become visible and therefore
     /// has already contributed one `.shown` metric.
     private var shownMetricGenerationID: Int?
     /// Serializes accepted-segment insertions so rapid Tab stepping never races;
     /// each commit awaits the previous one.
-    private var commitTask: Task<Void, Never>?
+    var commitTask: Task<Void, Never>?
     /// The generation that produced the candidate currently being accepted. It is
     /// both the *render epoch* (which ghost may be drawn) and the *commit-chain
     /// epoch* (which chain a failure belongs to). It is intentionally NOT bumped
     /// by `flow.accept()` on a stepped accept, so the remainder ghost stays valid.
-    private var activeRenderGenerationID = 0
+    var activeRenderGenerationID = 0
     /// Epochs (generation ids) whose commit chain already failed: further commits
     /// for them are refused, and a later generation is unaffected because it has a
     /// distinct epoch.
-    private var failedCommitEpochs: Set<Int> = []
+    var failedCommitEpochs: Set<Int> = []
 
     public init(
         engineManager: EngineManager,
@@ -599,7 +599,7 @@ public final class CompletionController: ObservableObject {
     /// Whether the captured focus target (the exact editor current at trigger
     /// time) still matches what is focused right now. Fails closed on any change
     /// or on any nil.
-    private func isFocusTargetValid() -> Bool {
+    func isFocusTargetValid() -> Bool {
         FocusIdentityPolicy.isValid(
             captured: activeFocusTarget,
             current: focusIdentityProvider.currentFocusTarget()
@@ -636,58 +636,6 @@ public final class CompletionController: ObservableObject {
             noteNotShown(.focusMismatchAtRender, appIdentifier: activeAppIdentifier)
         }
         return valid
-    }
-
-    /// Dismiss the remainder of a commit chain, but only if it is still the
-    /// active candidate. A stale chain's failure must never clear a newer
-    /// generation's ghost.
-    private func dismissCommitRemainder(epoch: Int) {
-        guard epoch == activeRenderGenerationID else { return }
-        _ = applyInteraction(.dismissed)
-    }
-
-    /// Accept the whole suggestion (full-suggestion chord / menu). Routes through
-    /// the machine so the loop stays consistent.
-    public func accept() {
-        guard canAcceptVisiblePreview(), candidateAvailable, activeAppIdentifier != "unknown" else {
-            return
-        }
-        guard isFocusTargetValid() else {
-            CotypeLog.loop.info("drop: focus target changed before accept in \(self.activeAppIdentifier, privacy: .public)")
-            cancel(recordingRejection: true)
-            return
-        }
-        applyInteraction(.acceptAll)
-    }
-
-    /// The visible-preview acceptance invariant: a candidate may only be
-    /// inserted while its ghost is on screen and, in a browser, while the same
-    /// website is still the one the candidate was generated for. Both accept
-    /// entry points use this, and the commit path re-checks it immediately
-    /// before inserting.
-    private func canAcceptVisiblePreview() -> Bool {
-        guard phase == .awaitingAccept else { return false }
-        let previewVisible = isGhostVisible
-            || (!rendererReportsVisibility && lastRenderedGhost?.isEmpty == false)
-        guard previewVisible else {
-            CotypeLog.loop.info("drop: accept while no preview is visible in \(self.activeAppIdentifier, privacy: .public)")
-            return false
-        }
-        guard isWebsiteIdentityUnchanged() else {
-            CotypeLog.loop.info("drop: website changed before accept in \(self.activeAppIdentifier, privacy: .public)")
-            cancel(recordingRejection: true)
-            return false
-        }
-        return true
-    }
-
-    /// In a browser, the captured host must still be the shown host. Unknown or
-    /// changed identity fails closed: the site rule that allowed the candidate
-    /// may no longer apply after a navigation.
-    private func isWebsiteIdentityUnchanged() -> Bool {
-        guard AppCompatibility.isBrowser(activeAppIdentifier) else { return true }
-        let current = browserDomainProvider.currentDomain(appIdentifier: activeAppIdentifier)
-        return current == activeWebsiteDomain
     }
 
     /// Cancel/dismiss. Routes through the machine (`dismissed`) so the loop
@@ -727,7 +675,7 @@ public final class CompletionController: ObservableObject {
     /// Returns true when a generation actually started (so the trigger key is
     /// consumed only then).
     @discardableResult
-    private func applyInteraction(_ event: CompletionInteraction.Event) -> Bool {
+    func applyInteraction(_ event: CompletionInteraction.Event) -> Bool {
         let effects = interaction.handle(event)
         var generationStarted = false
         for effect in effects {
@@ -831,120 +779,6 @@ public final class CompletionController: ObservableObject {
         lastRenderedGhost = nil
     }
 
-    /// Accept a segment of the candidate into the editor. For a full accept the
-    /// loop ends (state idle); for a stepped next-word accept the remaining ghost
-    /// stays and the tracked prefix advances.
-    ///
-    /// Commits are **serialized** (each awaits the previous one) and scoped to a
-    /// commit-chain *epoch* (the generation that produced the candidate). If any
-    /// commit in the chain fails, only that epoch is latched and its remainder is
-    /// dismissed; a later generation has a distinct epoch and is never poisoned.
-    /// Each segment revalidates the exact focus target just before insert (fail
-    /// closed on a moved caret), and a successful stepped insert refreshes the
-    /// captured target so the next queued segment validates against the new caret.
-    private func commitSegment(_ text: String) {
-        guard !text.isEmpty else { return }
-        // The invariant is checked at the public accept entry points, then again
-        // here before anything is queued: no visible preview, no insertion.
-        guard canAcceptVisiblePreview() else { return }
-        // Already-failed chain: refuse (a fresh epoch is needed to accept again).
-        if failedCommitEpochs.contains(activeRenderGenerationID) { return }
-        let epoch = activeRenderGenerationID
-        let appIdentifier = activeAppIdentifier
-        let prefix = activePrefix
-        flow.accept()
-        pipelineTask?.cancel()
-
-        let keepAccepting = interaction.state == .awaitingAccept
-        let chainEnding = !keepAccepting
-        if keepAccepting {
-            activePrefix = prefix + text
-        }
-        // Deliberately do NOT clearActiveState here: the in-flight commit chain
-        // still needs `activeFocusTarget` (and the request identity) to revalidate
-        // each queued segment. The last chain task clears it after the final insert
-        // (a worked example of the orchestrator's "full accept may capture its
-        // target before clear state").
-
-        let previous = commitTask
-        commitTask = Task { [weak self] in
-            await previous?.value
-            guard let self else { return }
-            // Skip if this chain was superseded by a fresh generation or already
-            // failed — never insert a segment the machine no longer stands behind.
-            guard self.activeRenderGenerationID == epoch,
-                  !self.failedCommitEpochs.contains(epoch) else { return }
-
-            // Revalidate the CURRENT exact target against the expected one (the
-            // target the previous insert left, or the captured one for the first
-            // segment). The field-aware inserter re-verifies the passed target
-            // too, so a moved caret fails closed here or at insert.
-            guard self.isFocusTargetValid() else {
-                CotypeLog.loop.info("drop: focus target changed before insert in \(appIdentifier, privacy: .public)")
-                await MainActor.run {
-                    self.failedCommitEpochs.insert(epoch)
-                    self.dismissCommitRemainder(epoch: epoch)
-                    if chainEnding { self.clearRequestIdentity() }
-                    self.personalization.recordFailed(appIdentifier: appIdentifier)
-                    self.lastError = "The focus changed before the completion was inserted."
-                }
-                return
-            }
-            // A browser that navigated after the preview was drawn invalidates
-            // the website rule the candidate was generated under.
-            guard self.isWebsiteIdentityUnchanged() else {
-                CotypeLog.loop.info("drop: website changed before insert in \(appIdentifier, privacy: .public)")
-                await MainActor.run {
-                    self.failedCommitEpochs.insert(epoch)
-                    self.dismissCommitRemainder(epoch: epoch)
-                    if chainEnding { self.clearRequestIdentity() }
-                    self.personalization.recordFailed(appIdentifier: appIdentifier)
-                    self.lastError = "The website changed before the completion was inserted."
-                }
-                return
-            }
-            let expectedTarget = self.activeFocusTarget
-
-            do {
-                try await self.inserter.insert(text, appIdentifier: appIdentifier, focusTarget: expectedTarget)
-                await MainActor.run {
-                    // A stepped insert advances the caret; refresh the active
-                    // target deterministically from the approved element/range and
-                    // inserted text. Re-reading "whatever is focused now" creates
-                    // a race where a newly focused field can become authorized for
-                    // the next segment.
-                    if keepAccepting {
-                        self.activeFocusTarget = Self.targetAfterInsertion(expectedTarget, text: text)
-                    }
-                    if AppCompatibility.isTerminal(appIdentifier) {
-                        // The typed-in completion is now on screen after the
-                        // user's keys; the next caret match must include it.
-                        TerminalCaret.noteTyped(text)
-                    }
-                    if chainEnding { self.clearRequestIdentity() }
-                    if self.contentLoggingEnabled {
-                        self.personalization.recordAccepted(
-                            prefix: prefix,
-                            completion: text,
-                            appIdentifier: appIdentifier
-                        )
-                    } else {
-                        self.personalization.recordMetric(.accepted, appIdentifier: appIdentifier)
-                    }
-                }
-            } catch {
-                CotypeLog.loop.error("fail: insert failed in \(appIdentifier, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                await MainActor.run {
-                    self.failedCommitEpochs.insert(epoch)
-                    self.dismissCommitRemainder(epoch: epoch)
-                    if chainEnding { self.clearRequestIdentity() }
-                    self.personalization.recordFailed(appIdentifier: appIdentifier)
-                    self.lastError = "Could not insert completion: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
     /// The first non-empty, trimmed value. Used so an empty override never
     /// shadows a parent value in the site > app > global chain.
     static func firstNonEmpty(_ candidates: [String?]) -> String {
@@ -960,7 +794,7 @@ public final class CompletionController: ObservableObject {
         UInt64(interval * 1_000_000_000)
     }
 
-    private static func targetAfterInsertion(_ target: FocusTarget?, text: String) -> FocusTarget? {
+    static func targetAfterInsertion(_ target: FocusTarget?, text: String) -> FocusTarget? {
         guard let target else { return nil }
         guard case .range? = target.selection else { return target }
         guard let nextSelection = target.expectedSelectionAfterInserting(text) else { return nil }
@@ -980,7 +814,7 @@ public final class CompletionController: ObservableObject {
         lastRenderedGhost = nil
     }
 
-    private func clearRequestIdentity() {
+    func clearRequestIdentity() {
         activeAppIdentifier = "unknown"
         activeFocusTarget = nil
         activeWebsiteDomain = nil
@@ -990,7 +824,7 @@ public final class CompletionController: ObservableObject {
         // epoch so the final (often sole) commit is not dropped.
     }
 
-    private var contentLoggingEnabled: Bool {
+    var contentLoggingEnabled: Bool {
         userDefaults.object(forKey: "learnFromFeedback") as? Bool ?? false
     }
 
@@ -1005,162 +839,5 @@ public final class CompletionController: ObservableObject {
         case .gated(.userExcludedApp):
             return "Completion is disabled because you excluded this app."
         }
-    }
-}
-
-/// Collects the streaming candidate and forwards it to the controller for
-/// validation (`onCandidate`), but **does not render**. Rendering is driven by
-/// the controller via `setGhost` only after it has confirmed this generation is
-/// still current and the focus target still matches — a stale streamed token can
-/// never be drawn before validation.
-final class CollectingRenderer: CompletionRenderer {
-    var onCandidate: ((String) -> Void)?
-
-    /// The underlying renderer. Injected so tests can spy on renders; production
-    /// uses the ghost-text overlay.
-    private let inner: CompletionRenderer
-
-    init(inner: CompletionRenderer = GhostTextRenderer()) {
-        self.inner = inner
-    }
-
-    func present(_ candidate: String, for request: CompletionRequest) {
-        // Only collect/callback. The controller may render after validation.
-        onCandidate?(candidate)
-    }
-
-    func clear() {
-        inner.clear()
-        if !(inner is GhostTextRenderer) {
-            fallbackShowing = false
-            // Pipeline stages may clear from a background executor; a simple
-            // renderer's report must hop to main rather than assume isolation.
-            let report = fallbackVisibility
-            if Thread.isMainThread {
-                MainActor.assumeIsolated { report?(false) }
-            } else {
-                DispatchQueue.main.async { report?(false) }
-            }
-        }
-    }
-
-    /// Update the ghost overlay without re-triggering the candidate callback.
-    /// Used when the interaction loop shrinks/clears the ghost via type-through
-    /// or accept — after the controller has validated generation + focus. The
-    /// `CompletionRequest` is vestigial for positioning.
-    func setGhost(_ candidate: String) {
-        inner.present(candidate, for: CompletionRequest())
-        if !(inner is GhostTextRenderer) {
-            fallbackShowing = !candidate.isEmpty
-            let report = fallbackVisibility
-            if Thread.isMainThread {
-                MainActor.assumeIsolated { report?(fallbackShowing) }
-            } else {
-                let showing = fallbackShowing
-                DispatchQueue.main.async { report?(showing) }
-            }
-        }
-    }
-
-    /// Forward the render-time guard to the underlying ghost renderer.
-    var renderGuard: (@MainActor () -> Bool)? {
-        get { (inner as? GhostTextRenderer)?.renderGuard }
-        set { (inner as? GhostTextRenderer)?.renderGuard = newValue }
-    }
-
-    var onNotShown: (@MainActor (NotShownReason) -> Void)? {
-        get { (inner as? GhostTextRenderer)?.onNotShown }
-        set { (inner as? GhostTextRenderer)?.onNotShown = newValue }
-    }
-
-    /// Visibility reports. The production overlay reports its real post-AppKit
-    /// visibility. A test renderer that cannot report is treated as showing what
-    /// it was told to draw, so the controller's visible-preview invariant stays
-    /// testable without a window.
-    private var fallbackVisibility: (@MainActor (Bool) -> Void)?
-    private var fallbackShowing = false
-
-    var onVisibilityChanged: (@MainActor (Bool) -> Void)? {
-        get {
-            if let ghost = inner as? GhostTextRenderer { return ghost.onVisibilityChanged }
-            return fallbackVisibility
-        }
-        set {
-            if let ghost = inner as? GhostTextRenderer {
-                ghost.onVisibilityChanged = newValue
-            } else {
-                fallbackVisibility = newValue
-            }
-        }
-    }
-
-    /// Whether the underlying ghost overlay is showing. Exposed for tests.
-    var isShowing: Bool {
-        if let ghost = inner as? GhostTextRenderer { return ghost.isShowing }
-        return fallbackShowing
-    }
-
-    /// Whether this renderer reports real visibility. The production overlay
-    /// does; a simple test renderer does not.
-    var reportsVisibility: Bool { inner is GhostTextRenderer }
-}
-
-/// Coalesces a burst of streamed candidate callbacks into at most one pending
-/// delivery per run-loop turn.
-///
-/// The engine streams tokens from a background task while the controller renders
-/// on the main actor. Every `submit` stores the newest candidate and schedules a
-/// single drain; interleaved tokens in the same turn collapse to the newest one,
-/// so the main actor performs at most one update per run-loop turn and the AX
-/// focus read stays out of the per-token path.
-///
-/// `submit` is called from the pipeline's executor and `drain` from the scheduled
-/// lane, so all mutable state is guarded by `lock` — which is the whole reason
-/// for the `@unchecked Sendable` conformance.
-final class StreamedCandidateCoalescer: @unchecked Sendable {
-    struct Pending: Equatable {
-        var text: String
-        var generationID: Int
-    }
-
-    /// Runs the scheduled drain. Injected so tests can drain deterministically.
-    typealias Scheduler = (@escaping () -> Void) -> Void
-
-    private let lock = NSLock()
-    private var pending: Pending?
-    private var scheduled = false
-    private let schedule: Scheduler
-    private let deliver: (Pending) -> Void
-
-    init(
-        schedule: @escaping Scheduler = { DispatchQueue.main.async(execute: $0) },
-        deliver: @escaping (Pending) -> Void
-    ) {
-        self.schedule = schedule
-        self.deliver = deliver
-    }
-
-    /// Store the newest candidate and schedule one drain if none is pending.
-    func submit(_ text: String, generationID: Int) {
-        lock.lock()
-        pending = Pending(text: text, generationID: generationID)
-        let shouldSchedule = !scheduled
-        if shouldSchedule { scheduled = true }
-        lock.unlock()
-
-        guard shouldSchedule else { return }
-        schedule { [weak self] in self?.drain() }
-    }
-
-    /// Deliver the newest pending candidate, if any.
-    func drain() {
-        lock.lock()
-        scheduled = false
-        let item = pending
-        pending = nil
-        lock.unlock()
-
-        guard let item else { return }
-        deliver(item)
     }
 }
