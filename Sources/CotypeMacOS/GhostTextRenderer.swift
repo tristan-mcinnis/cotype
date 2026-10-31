@@ -221,13 +221,17 @@ public final class GhostTextRenderer: CompletionRenderer {
 
     /// The opt-in fallback is drawn at once, so a terminal that never reports a
     /// caret keeps a visible (and acceptable) preview while retries run. Without
-    /// it, a ghost already on screen stays up until the last attempt: hiding it
-    /// on every late caret would flicker during type-through and hand the accept
-    /// key back to the host app.
+    /// it, a window on screen still shows the previous candidate, and reporting
+    /// it visible would let the accept key insert text the user never saw, so it
+    /// hides until a retry draws the current candidate. Only the final miss
+    /// reports why nothing is shown.
     private func handleCaretMiss(_ candidate: String, isFinal: Bool) {
         let field = fallbackEnabled() ? (geometryProvider as? InlineFieldGeometryProvider)?.fieldGeometry() : nil
         if let field, showFallback(candidate: candidate, field: field) { return }
-        guard isFinal else { return }
+        guard isFinal else {
+            hideWindow()
+            return
+        }
         let reason: NotShownReason = field == nil ? .noCaretGeometry : .ghostDoesNotFit
         CotypeLog.geometry.info("hide: \(field == nil ? "no usable caret geometry" : "fallback ghost does not fit the field", privacy: .public)")
         MainActor.assumeIsolated { onNotShown?(reason) }

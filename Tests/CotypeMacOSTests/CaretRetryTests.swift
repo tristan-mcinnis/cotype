@@ -138,7 +138,7 @@ final class CaretRetryTests: XCTestCase {
         XCTAssertEqual(rig.scheduler.pendingCount, 0)
     }
 
-    func testVisibleGhostStaysUpThroughANonFinalMiss() {
+    func testStaleGhostIsNeverReportedVisibleDuringARetry() {
         let rig = makeRig(misses: 0)
         defer { rig.renderer.clear() }
         rig.renderer.present("hello")
@@ -147,24 +147,26 @@ final class CaretRetryTests: XCTestCase {
         rig.geometry.missesRemaining = 1
         rig.renderer.present("hello there")
 
-        XCTAssertTrue(rig.renderer.isShowing, "a late caret must not flicker the ghost off")
-        XCTAssertFalse(rig.visibility.values.contains(false), "the accept key stays with Cotype while retrying")
+        XCTAssertFalse(rig.renderer.isShowing, "the window still shows the old candidate")
+        XCTAssertEqual(rig.visibility.values.last, false, "accept must not insert a candidate the user cannot see")
+        XCTAssertTrue(rig.notShown.values.isEmpty, "a non-final miss is not yet a failure")
         XCTAssertEqual(rig.scheduler.pendingCount, 1)
 
         rig.scheduler.fireNext()
         XCTAssertTrue(rig.renderer.isShowing)
-        XCTAssertEqual(rig.renderer.ghostContent.lines.map(\.text), ["hello there"])
+        XCTAssertEqual(rig.visibility.values.last, true)
+        XCTAssertEqual(rig.renderer.ghostContent.lines.map(\.text).joined(), "hello there")
         XCTAssertTrue(rig.notShown.values.isEmpty)
     }
 
-    func testVisibleGhostHidesOnlyAtTheFinalMiss() {
+    func testGhostReportsNotShownOnlyAtTheFinalMiss() {
         let rig = makeRig(misses: 0)
         rig.renderer.present("hello")
         rig.geometry.missesRemaining = .max
         rig.renderer.present("hello there")
 
         for _ in 1..<CaretRetryPlan.standard.delays.count { rig.scheduler.fireNext() }
-        XCTAssertTrue(rig.renderer.isShowing)
+        XCTAssertFalse(rig.renderer.isShowing)
         XCTAssertTrue(rig.notShown.values.isEmpty)
 
         rig.scheduler.fireNext()
