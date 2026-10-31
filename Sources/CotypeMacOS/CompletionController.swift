@@ -24,7 +24,7 @@ public final class CompletionController: ObservableObject {
 
     @Published public private(set) var phase: Phase = .idle
     @Published public private(set) var currentCandidate: String = ""
-    @Published public internal(set) var lastError: String?
+    @Published public private(set) var lastError: String?
     @Published public private(set) var storageWarning: String?
     /// Whether the ghost overlay is actually on screen, as the production
     /// renderer reports it after AppKit applied a draw or hide. A candidate can
@@ -41,12 +41,12 @@ public final class CompletionController: ObservableObject {
     /// Per-website enable/instruction rules. Read at trigger and revalidated at
     /// accept; a host is only trusted when the browser window proves it.
     public let websiteRules: WebsiteRulesStore
-    let browserDomainProvider: BrowserDomainProviding
+    private let browserDomainProvider: BrowserDomainProviding
     private let powerStateProvider: PowerStateProviding
     private let notShown: NotShownStore?
     private var notShownRecorded: Set<NotShownReason> = []
 
-    let inserter: CompletionInserter
+    private let inserter: CompletionInserter
     /// One overlay renderer for the controller's lifetime. Reusing it prevents
     /// completed generations from leaving separate NSWindow instances onscreen.
     private let overlayRenderer: CompletionRenderer
@@ -68,17 +68,17 @@ public final class CompletionController: ObservableObject {
     /// visibility. Production always can; a renderer that cannot is treated as
     /// showing what it was told to draw (and the controller still requires a
     /// committed ghost). Reset to the fail-closed default per generation.
-    var rendererReportsVisibility = true
-    var pipelineTask: Task<Void, Never>?
+    private var rendererReportsVisibility = true
+    private var pipelineTask: Task<Void, Never>?
 
-    var activeAppIdentifier = "unknown"
-    var activeFocusTarget: FocusTarget?
-    var activePrefix = ""
+    private var activeAppIdentifier = "unknown"
+    private var activeFocusTarget: FocusTarget?
+    private var activePrefix = ""
     /// The normalised website host captured at trigger time for a browser. At
     /// accept the same host must still be shown, otherwise the site rule that
     /// allowed this candidate no longer applies and nothing is inserted.
-    var activeWebsiteDomain: String?
-    var flow = CompletionFlow()
+    private var activeWebsiteDomain: String?
+    private var flow = CompletionFlow()
     private var frontmostChangeObserver: NSObjectProtocol?
 
     // MARK: - Typing interaction loop
@@ -86,7 +86,7 @@ public final class CompletionController: ObservableObject {
     /// The pure interaction loop state machine. It decides *when* to generate,
     /// cancel, accept, type-through, and dismiss; this controller runs the
     /// resulting effects (timers, pipeline, insertion).
-    var interaction = CompletionInteraction()
+    private var interaction = CompletionInteraction()
 
     /// Pause window before a generation auto-triggers after typing stops.
     /// TabType defaults to 90 ms and cotabby/KeyType to 15-55 ms; the local
@@ -110,22 +110,22 @@ public final class CompletionController: ObservableObject {
     private var cooldownTask: Task<Void, Never>?
     /// The last ghost shown in the overlay, so `refreshFromInteraction` only
     /// re-renders when the ghost actually changes (type-through shrinks it).
-    var lastRenderedGhost: String?
+    private var lastRenderedGhost: String?
     /// The generation whose overlay has actually become visible and therefore
     /// has already contributed one `.shown` metric.
     private var shownMetricGenerationID: Int?
     /// Serializes accepted-segment insertions so rapid Tab stepping never races;
     /// each commit awaits the previous one.
-    var commitTask: Task<Void, Never>?
+    private var commitTask: Task<Void, Never>?
     /// The generation that produced the candidate currently being accepted. It is
     /// both the *render epoch* (which ghost may be drawn) and the *commit-chain
     /// epoch* (which chain a failure belongs to). It is intentionally NOT bumped
     /// by `flow.accept()` on a stepped accept, so the remainder ghost stays valid.
-    var activeRenderGenerationID = 0
+    private var activeRenderGenerationID = 0
     /// Epochs (generation ids) whose commit chain already failed: further commits
     /// for them are refused, and a later generation is unaffected because it has a
     /// distinct epoch.
-    var failedCommitEpochs: Set<Int> = []
+    private var failedCommitEpochs: Set<Int> = []
 
     public init(
         engineManager: EngineManager,
@@ -383,36 +383,13 @@ public final class CompletionController: ObservableObject {
         phase = .generating
 
         let length = SuggestionLength.current(userDefaults)
-        let storedPrompt = userDefaults.string(forKey: "systemPrompt")
-        // A prompt only counts when the user actually wrote something. The
-        // shipped default is instruction boilerplate for the chat lane and is
-        // never treated as a custom instruction.
-        let globalInstruction = (storedPrompt == nil || storedPrompt == AutocompletePrompt.defaultSystem)
-            ? ""
-            : (storedPrompt ?? "")
-        // One precedence for both prompt styles: website, then app, then global.
-        // The chosen style never changes because an override exists.
-        let customInstruction = Self.firstNonEmpty([
-            websiteRule?.rule.systemPrompt,
-            override.systemPrompt,
-            globalInstruction,
-        ])
-        let style = PromptStyle.current(userDefaults)
-        // The chat lane's system message is the continuation directive plus the
-        // author's style note. The continuation lane does not transmit `system`.
-        let systemPromptText = AutocompletePrompt.system(
-            for: style,
-            customInstruction: customInstruction,
-            length: length
-        )
-        let facts = userDefaults.string(forKey: Self.personalFactsKey) ?? ""
-        var promptBuilder = TemplatePromptBuilder(
-            systemTemplate: AutocompletePrompt.withPersonalFacts(
-                length.applied(to: systemPromptText),
-                facts: facts
-            ),
-            style: style,
-            personalFacts: facts
+        var promptBuilder = GenerationPrompt.make(
+            length: length,
+            style: PromptStyle.current(userDefaults),
+            storedPrompt: userDefaults.string(forKey: "systemPrompt"),
+            websitePrompt: websiteRule?.rule.systemPrompt,
+            appPrompt: override.systemPrompt,
+            personalFacts: userDefaults.string(forKey: Self.personalFactsKey) ?? ""
         )
         if contentLoggingEnabled {
             let store = personalization
@@ -599,7 +576,7 @@ public final class CompletionController: ObservableObject {
     /// Whether the captured focus target (the exact editor current at trigger
     /// time) still matches what is focused right now. Fails closed on any change
     /// or on any nil.
-    func isFocusTargetValid() -> Bool {
+    private func isFocusTargetValid() -> Bool {
         FocusIdentityPolicy.isValid(
             captured: activeFocusTarget,
             current: focusIdentityProvider.currentFocusTarget()
@@ -636,6 +613,58 @@ public final class CompletionController: ObservableObject {
             noteNotShown(.focusMismatchAtRender, appIdentifier: activeAppIdentifier)
         }
         return valid
+    }
+
+    /// Dismiss the remainder of a commit chain, but only if it is still the
+    /// active candidate. A stale chain's failure must never clear a newer
+    /// generation's ghost.
+    private func dismissCommitRemainder(epoch: Int) {
+        guard epoch == activeRenderGenerationID else { return }
+        _ = applyInteraction(.dismissed)
+    }
+
+    /// Accept the whole suggestion (full-suggestion chord / menu). Routes through
+    /// the machine so the loop stays consistent.
+    public func accept() {
+        guard canAcceptVisiblePreview(), candidateAvailable, activeAppIdentifier != "unknown" else {
+            return
+        }
+        guard isFocusTargetValid() else {
+            CotypeLog.loop.info("drop: focus target changed before accept in \(self.activeAppIdentifier, privacy: .public)")
+            cancel(recordingRejection: true)
+            return
+        }
+        applyInteraction(.acceptAll)
+    }
+
+    /// The visible-preview acceptance invariant: a candidate may only be
+    /// inserted while its ghost is on screen and, in a browser, while the same
+    /// website is still the one the candidate was generated for. Both accept
+    /// entry points use this, and the commit path re-checks it immediately
+    /// before inserting.
+    private func canAcceptVisiblePreview() -> Bool {
+        guard phase == .awaitingAccept else { return false }
+        let previewVisible = isGhostVisible
+            || (!rendererReportsVisibility && lastRenderedGhost?.isEmpty == false)
+        guard previewVisible else {
+            CotypeLog.loop.info("drop: accept while no preview is visible in \(self.activeAppIdentifier, privacy: .public)")
+            return false
+        }
+        guard isWebsiteIdentityUnchanged() else {
+            CotypeLog.loop.info("drop: website changed before accept in \(self.activeAppIdentifier, privacy: .public)")
+            cancel(recordingRejection: true)
+            return false
+        }
+        return true
+    }
+
+    /// In a browser, the captured host must still be the shown host. Unknown or
+    /// changed identity fails closed: the site rule that allowed the candidate
+    /// may no longer apply after a navigation.
+    private func isWebsiteIdentityUnchanged() -> Bool {
+        guard AppCompatibility.isBrowser(activeAppIdentifier) else { return true }
+        let current = browserDomainProvider.currentDomain(appIdentifier: activeAppIdentifier)
+        return current == activeWebsiteDomain
     }
 
     /// Cancel/dismiss. Routes through the machine (`dismissed`) so the loop
@@ -675,7 +704,7 @@ public final class CompletionController: ObservableObject {
     /// Returns true when a generation actually started (so the trigger key is
     /// consumed only then).
     @discardableResult
-    func applyInteraction(_ event: CompletionInteraction.Event) -> Bool {
+    private func applyInteraction(_ event: CompletionInteraction.Event) -> Bool {
         let effects = interaction.handle(event)
         var generationStarted = false
         for effect in effects {
@@ -779,22 +808,117 @@ public final class CompletionController: ObservableObject {
         lastRenderedGhost = nil
     }
 
-    /// The first non-empty, trimmed value. Used so an empty override never
-    /// shadows a parent value in the site > app > global chain.
-    static func firstNonEmpty(_ candidates: [String?]) -> String {
-        for candidate in candidates {
-            guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !trimmed.isEmpty else { continue }
-            return trimmed
+    /// Accept a segment of the candidate into the editor. For a full accept the
+    /// loop ends (state idle); for a stepped next-word accept the remaining ghost
+    /// stays and the tracked prefix advances.
+    ///
+    /// Commits are **serialized** (each awaits the previous one) and scoped to a
+    /// commit-chain *epoch* (the generation that produced the candidate). If any
+    /// commit in the chain fails, only that epoch is latched and its remainder is
+    /// dismissed; a later generation has a distinct epoch and is never poisoned.
+    /// Each segment revalidates the exact focus target just before insert (fail
+    /// closed on a moved caret), and a successful stepped insert refreshes the
+    /// captured target so the next queued segment validates against the new caret.
+    private func commitSegment(_ text: String) {
+        guard !text.isEmpty else { return }
+        // The invariant is checked at the public accept entry points, then again
+        // here before anything is queued: no visible preview, no insertion.
+        guard canAcceptVisiblePreview() else { return }
+        // Already-failed chain: refuse (a fresh epoch is needed to accept again).
+        if failedCommitEpochs.contains(activeRenderGenerationID) { return }
+        let epoch = activeRenderGenerationID
+        let appIdentifier = activeAppIdentifier
+        let prefix = activePrefix
+        flow.accept()
+        pipelineTask?.cancel()
+
+        let keepAccepting = interaction.state == .awaitingAccept
+        let chainEnding = !keepAccepting
+        if keepAccepting {
+            activePrefix = prefix + text
         }
-        return ""
+        // Deliberately do NOT clearActiveState here: the in-flight commit chain
+        // still needs `activeFocusTarget` (and the request identity) to revalidate
+        // each queued segment. The last chain task clears it after the final insert
+        // (a worked example of the orchestrator's "full accept may capture its
+        // target before clear state").
+
+        let previous = commitTask
+        commitTask = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            // Skip if this chain was superseded by a fresh generation or already
+            // failed — never insert a segment the machine no longer stands behind.
+            guard self.activeRenderGenerationID == epoch,
+                  !self.failedCommitEpochs.contains(epoch) else { return }
+
+            // Revalidate the CURRENT exact target against the expected one (the
+            // target the previous insert left, or the captured one for the first
+            // segment). The field-aware inserter re-verifies the passed target
+            // too, so a moved caret fails closed here or at insert.
+            guard self.isFocusTargetValid() else {
+                CotypeLog.loop.info("drop: focus target changed before insert in \(appIdentifier, privacy: .public)")
+                self.failCommitChain(epoch, appIdentifier: appIdentifier, chainEnding: chainEnding, message: "The focus changed before the completion was inserted.")
+                return
+            }
+            // A browser that navigated after the preview was drawn invalidates
+            // the website rule the candidate was generated under.
+            guard self.isWebsiteIdentityUnchanged() else {
+                CotypeLog.loop.info("drop: website changed before insert in \(appIdentifier, privacy: .public)")
+                self.failCommitChain(epoch, appIdentifier: appIdentifier, chainEnding: chainEnding, message: "The website changed before the completion was inserted.")
+                return
+            }
+            let expectedTarget = self.activeFocusTarget
+
+            do {
+                try await self.inserter.insert(text, appIdentifier: appIdentifier, focusTarget: expectedTarget)
+                await MainActor.run {
+                    // A stepped insert advances the caret; refresh the active
+                    // target deterministically from the approved element/range and
+                    // inserted text. Re-reading "whatever is focused now" creates
+                    // a race where a newly focused field can become authorized for
+                    // the next segment.
+                    if keepAccepting {
+                        self.activeFocusTarget = Self.targetAfterInsertion(expectedTarget, text: text)
+                    }
+                    if AppCompatibility.isTerminal(appIdentifier) {
+                        // The typed-in completion is now on screen after the
+                        // user's keys; the next caret match must include it.
+                        TerminalCaret.noteTyped(text)
+                    }
+                    if chainEnding { self.clearRequestIdentity() }
+                    if self.contentLoggingEnabled {
+                        self.personalization.recordAccepted(
+                            prefix: prefix,
+                            completion: text,
+                            appIdentifier: appIdentifier
+                        )
+                    } else {
+                        self.personalization.recordMetric(.accepted, appIdentifier: appIdentifier)
+                    }
+                }
+            } catch {
+                CotypeLog.loop.error("fail: insert failed in \(appIdentifier, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                self.failCommitChain(epoch, appIdentifier: appIdentifier, chainEnding: chainEnding, message: "Could not insert completion: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Latches a failed commit chain so its remaining segments are refused, and
+    /// dismisses its ghost only if it is still the active candidate.
+    private func failCommitChain(_ epoch: Int, appIdentifier: String, chainEnding: Bool, message: String) {
+        failedCommitEpochs.insert(epoch)
+        dismissCommitRemainder(epoch: epoch)
+        if chainEnding { clearRequestIdentity() }
+        personalization.recordFailed(appIdentifier: appIdentifier)
+        lastError = message
     }
 
     private static func nanoseconds(_ interval: TimeInterval) -> UInt64 {
         UInt64(interval * 1_000_000_000)
     }
 
-    static func targetAfterInsertion(_ target: FocusTarget?, text: String) -> FocusTarget? {
+    private static func targetAfterInsertion(_ target: FocusTarget?, text: String) -> FocusTarget? {
         guard let target else { return nil }
         guard case .range? = target.selection else { return target }
         guard let nextSelection = target.expectedSelectionAfterInserting(text) else { return nil }
@@ -814,7 +938,7 @@ public final class CompletionController: ObservableObject {
         lastRenderedGhost = nil
     }
 
-    func clearRequestIdentity() {
+    private func clearRequestIdentity() {
         activeAppIdentifier = "unknown"
         activeFocusTarget = nil
         activeWebsiteDomain = nil
@@ -824,7 +948,7 @@ public final class CompletionController: ObservableObject {
         // epoch so the final (often sole) commit is not dropped.
     }
 
-    var contentLoggingEnabled: Bool {
+    private var contentLoggingEnabled: Bool {
         userDefaults.object(forKey: "learnFromFeedback") as? Bool ?? false
     }
 
