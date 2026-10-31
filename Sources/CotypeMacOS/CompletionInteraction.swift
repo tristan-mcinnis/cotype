@@ -122,8 +122,8 @@ public struct CompletionInteraction: Equatable, Sendable {
     /// Default `false`: the loop is manual-first. Typing, navigation, editing,
     /// and pointer-originated context changes never arm the debounce timer or
     /// start a generation on their own — only an explicit `.manualTrigger` does.
-    /// There is no UI for this in the manual v1 slice; the future automatic lane
-    /// flips it on deliberately.
+    /// The app turns it on: `CompletionController` reads the `autoSuggest`
+    /// default, which the menu app registers as true and Settings can switch off.
     public var autoSuggestEnabled: Bool
 
     public init(autoSuggestEnabled: Bool = false) {

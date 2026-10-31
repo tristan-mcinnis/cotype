@@ -159,17 +159,17 @@ final class AXFontDecodingTests: XCTestCase {
 
     func testAttributedStringUsesItsFirstRunFont() {
         let attributed = NSAttributedString(string: "x", attributes: cocoa(menlo))
-        XCTAssertEqual(AXFontDecoder.font(from: attributed)?.fontName, "Menlo-Regular")
+        XCTAssertEqual(AXFontDecoder.style(from: attributed)?.font?.fontName, "Menlo-Regular")
     }
 
     func testEmptyAttributedStringHasNoFont() {
-        XCTAssertNil(AXFontDecoder.font(from: NSAttributedString(string: "")))
+        XCTAssertNil(AXFontDecoder.style(from: NSAttributedString(string: "")))
     }
 
     func testAttributedStringWithoutAFontReturnsNil() {
         let attributed = NSAttributedString(string: "x", attributes: [
             .foregroundColor: NSColor.labelColor,
         ])
-        XCTAssertNil(AXFontDecoder.font(from: attributed))
+        XCTAssertNil(AXFontDecoder.style(from: attributed)?.font)
     }
 }

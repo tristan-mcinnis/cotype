@@ -54,12 +54,6 @@ enum AXFontDecoder {
 
     // MARK: - Entry points
 
-    /// The first font the attributed string declares, or nil when it declares none.
-    static func font(from attributed: NSAttributedString) -> NSFont? {
-        guard attributed.length > 0 else { return nil }
-        return font(fromAttributes: attributed.attributes(at: 0, effectiveRange: nil))
-    }
-
     /// Decode one run's attributes. Cocoa `.font` wins when it holds an `NSFont`;
     /// the Accessibility dictionary is decoded from name, family, size and traits,
     /// whether it sits under `.font`, under `AXFont`, or flattened onto the run.
