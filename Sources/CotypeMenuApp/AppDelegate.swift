@@ -105,18 +105,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Setup
 
+    /// The status item uses the same I-beam the app icon draws, as a template
+    /// image, so icon and menu bar read as one app. The render proof draws it too.
+    static func statusGlyph() -> NSImage? {
+        let image = NSImage(systemSymbolName: "text.cursor", accessibilityDescription: "Cotype")?
+            .withSymbolConfiguration(
+                NSImage.SymbolConfiguration(pointSize: House.Control.statusGlyph, weight: .medium)
+            )
+        image?.isTemplate = true
+        return image
+    }
+
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
         if let button = item.button {
-            // The status item uses the same I-beam the app icon draws, as a
-            // template image, so icon and menu bar read as one app.
-            let image = NSImage(systemSymbolName: "text.cursor", accessibilityDescription: "Cotype")?
-                .withSymbolConfiguration(
-                    NSImage.SymbolConfiguration(pointSize: House.Control.statusGlyph, weight: .medium)
-                )
-            image?.isTemplate = true
-            button.image = image
+            button.image = Self.statusGlyph()
             button.target = self
             button.action = #selector(toggleMenuPanel)
         }

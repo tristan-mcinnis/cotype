@@ -83,6 +83,20 @@ enum RenderProof {
                     fitToContent: true
                 ),
             ].compactMap { $0 })
+
+            // Status item: the glyph the menu bar shows, at menu-bar height,
+            // tinted the way AppKit tints a template image in this appearance.
+            if let glyph = AppDelegate.statusGlyph(), let url = write(
+                view: Image(nsImage: glyph)
+                    .renderingMode(.template)
+                    .foregroundStyle(.primary)
+                    .frame(width: 44, height: 24),
+                size: NSSize(width: 44, height: 24),
+                appearance: appearance,
+                to: directory.appendingPathComponent("status-item-\(name).png")
+            ) {
+                written.append(url)
+            }
         }
 
         return written
