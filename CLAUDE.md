@@ -47,6 +47,7 @@ default engine; Launch at Login as a real registration; no telemetry.
 
 ## Development
 
+- Build and test: `make build`, `make test`; warnings are errors.
 - `swift build` and `swift test` from the repository root.
 - `./scripts/build-app.sh` builds, signs, and version-stamps `dist/Cotype.app`.
 - `./scripts/install.sh` installs and relaunches; `./scripts/verify.sh` is the
