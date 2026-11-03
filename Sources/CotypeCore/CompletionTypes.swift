@@ -112,12 +112,18 @@ public struct Prompt {
 ///   trailing space is moved out of `text` into `requiredLeading`; the engine
 ///   forces the first generated token to start with it and strips it again, so
 ///   callers still receive a continuation relative to the real prefix.
+/// - Word healing. A prompt that ends partway through a word ends on a fragment
+///   token, and the model misspells what follows ("becau" -> "ase") or starts a
+///   new word ("thin" -> " we should"). The trailing word moves into
+///   `requiredLeading` too, so the model picks one whole token (" because",
+///   " think") that spells it. A finished word survives this: " the" is followed
+///   by the next word as usual.
 /// - One line. Generation stops at the first line break: a suggestion finishes
 ///   the current line, never starts a new paragraph.
 public struct ContinuationPrompt: Equatable, Sendable {
     /// The document the model continues: optional context block + prefix.
     public var text: String
-    /// Whitespace removed from the end of `text` that the output must begin with.
+    /// Text removed from the end of `text` that the output must begin with.
     public var requiredLeading: String
 
     public init(text: String, requiredLeading: String = "") {
@@ -128,18 +134,53 @@ public struct ContinuationPrompt: Equatable, Sendable {
     /// Stop sequences for continuation: the suggestion ends at the line end.
     public static let stopSequences = ["\n"]
 
-    /// Split one trailing space off `prefix` for token healing. Two or more
+    /// Longest word worth backing over: beyond this it is an identifier or a
+    /// URL slug, and no single token spells it.
+    static let maxHealedWordLength = 24
+
+    /// Words a writer has almost always finished, which forcing would stretch
+    /// ("go to" -> "go too deep"). The model continues after these as it is.
+    static let finishedWords: Set<String> = [
+        "a", "an", "and", "are", "as", "at", "be", "but", "by", "do", "for", "from", "go",
+        "had", "has", "have", "he", "her", "his", "i", "if", "in", "is", "it", "me", "my",
+        "no", "not", "of", "on", "or", "our", "she", "so", "that", "the", "their", "they",
+        "this", "to", "up", "us", "was", "we", "were", "will", "with", "you", "your",
+    ]
+
+    /// Split the caret's boundary off `prefix` for healing: one trailing space,
+    /// or the trailing word with the single space before it. Two or more
     /// trailing spaces, tabs, and line breaks stay in the text (they are real
-    /// layout, and a lone "\n" token is common in training data).
+    /// layout, and a lone "\n" token is common in training data). So does a word
+    /// in an unspaced script, one with nothing before it, and a finished one.
     public static func healed(_ prefix: String) -> (body: String, requiredLeading: String) {
-        guard prefix.hasSuffix(" "), !prefix.hasSuffix("  ") else { return (prefix, "") }
-        return (String(prefix.dropLast()), " ")
+        if prefix.hasSuffix(" ") {
+            return prefix.hasSuffix("  ") ? (prefix, "") : (String(prefix.dropLast()), " ")
+        }
+        let word = CaretBoundary.trailingWord(of: prefix)
+        guard !word.isEmpty, word.count <= maxHealedWordLength, CaretBoundary.isSpacedScript(word),
+              !finishedWords.contains(word.lowercased()) else {
+            return (prefix, "")
+        }
+        let before = prefix.dropLast(word.count)
+        guard !before.isEmpty else { return (prefix, "") }
+        if before.hasSuffix(" "), !before.hasSuffix("  "), before.count > 1 {
+            return (String(before.dropLast()), " " + word)
+        }
+        return (String(before), word)
+    }
+
+    /// The same prompt with a healed word put back, for an engine that can only
+    /// force a single first token and so cannot leave a finished word alone.
+    public var healingOnlySpace: ContinuationPrompt {
+        guard requiredLeading != " " else { return self }
+        return ContinuationPrompt(text: text + requiredLeading)
     }
 
     /// Remove `requiredLeading` from the start of streamed output, across token
     /// boundaries. Feed each piece; returns what may be emitted now.
     public struct LeadingStripper: Sendable {
         private var remaining: Substring
+        private var matched = ""
         public init(_ required: String) { remaining = Substring(required) }
 
         public mutating func strip(_ piece: String) -> String {
@@ -148,12 +189,16 @@ public struct ContinuationPrompt: Equatable, Sendable {
             while let first = remaining.first, let head = text.first, first == head {
                 remaining.removeFirst()
                 text.removeFirst()
+                matched.append(first)
             }
             // The model did not reproduce the required boundary (only possible
             // when the engine could not constrain the first token): stop waiting
-            // for it and pass the text through; the caret-boundary rules and the
-            // sanitizer handle it from there.
-            if !text.isEmpty { remaining = "" }
+            // for it and pass the text through, with whatever matched so far;
+            // the caret-boundary rules and the sanitizer handle it from there.
+            if !text.isEmpty, !remaining.isEmpty {
+                remaining = ""
+                return matched + text
+            }
             return String(text)
         }
     }

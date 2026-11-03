@@ -12,8 +12,54 @@ final class ContinuationPromptTests: XCTestCase {
         XCTAssertEqual(healed.requiredLeading, " ")
     }
 
+    func testTrailingWordMovesOutWithTheSpaceBeforeIt() {
+        let healed = ContinuationPrompt.healed("so i thin")
+        XCTAssertEqual(healed.body, "so i")
+        XCTAssertEqual(healed.requiredLeading, " thin")
+    }
+
+    func testTrailingWordAfterALineBreakOrPunctuationLeavesThemInThePrompt() {
+        let line = ContinuationPrompt.healed("done.\n\nlet me kno")
+        XCTAssertEqual(line.body, "done.\n\nlet me")
+        XCTAssertEqual(line.requiredLeading, " kno")
+        let start = ContinuationPrompt.healed("done.\n\nlet")
+        XCTAssertEqual(start.body, "done.\n\n")
+        XCTAssertEqual(start.requiredLeading, "let")
+        let member = ContinuationPrompt.healed("res.js")
+        XCTAssertEqual(member.body, "res.")
+        XCTAssertEqual(member.requiredLeading, "js")
+    }
+
+    func testHealingOnlySpacePutsAWordBack() {
+        let word = ContinuationPrompt(text: "so i", requiredLeading: " thin").healingOnlySpace
+        XCTAssertEqual(word.text, "so i thin")
+        XCTAssertEqual(word.requiredLeading, "")
+        let space = ContinuationPrompt(text: "so i", requiredLeading: " ").healingOnlySpace
+        XCTAssertEqual(space.requiredLeading, " ")
+    }
+
+    func testLeadingStripperRemovesAWordFromInsideOneToken() {
+        var stripper = ContinuationPrompt.LeadingStripper(" thin")
+        XCTAssertEqual(stripper.strip(" think"), "k")
+        XCTAssertEqual(stripper.strip(" we"), " we")
+    }
+
+    func testLeadingStripperKeepsWhatMatchedWhenTheModelLeavesTheWord() {
+        var stripper = ContinuationPrompt.LeadingStripper(" by")
+        XCTAssertEqual(stripper.strip(" the"), " the")
+        XCTAssertEqual(stripper.strip(" end"), " end")
+    }
+
+    func testAFinishedWordStaysInThePrompt() {
+        for text in ["lets not go to", "I went to The", "and that's why I"] {
+            let healed = ContinuationPrompt.healed(text)
+            XCTAssertEqual(healed.body, text)
+            XCTAssertEqual(healed.requiredLeading, "")
+        }
+    }
+
     func testOtherEndingsStayInThePrompt() {
-        for text in ["by", "two  ", "line\n", "tab\t", ""] {
+        for text in ["by", "two  ", "line\n", "tab\t", "", "我觉得", String(repeating: "a", count: 30) + " " + String(repeating: "b", count: 25)] {
             let healed = ContinuationPrompt.healed(text)
             XCTAssertEqual(healed.body, text)
             XCTAssertEqual(healed.requiredLeading, "")

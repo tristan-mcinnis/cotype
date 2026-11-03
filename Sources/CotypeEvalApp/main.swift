@@ -175,7 +175,9 @@ var cases = hasFlag("--window-context-set")
         ? SeededEvalSet.postCursorCases
         : adherenceSet
             ? SeededEvalSet.adherenceCases
-            : (flagValue("--set") == "prose" ? ProseEvalSet.cases : SeededEvalSet.cases)
+            : (flagValue("--set") == "midword"
+                ? ProseEvalSet.midwordCases
+                : (flagValue("--set") == "prose" ? ProseEvalSet.cases : SeededEvalSet.cases))
 if limit > 0 { cases = Array(cases.prefix(limit)) }
 let results = await EvalRunner.run(
     cases: cases,

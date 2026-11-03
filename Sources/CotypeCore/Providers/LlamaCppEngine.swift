@@ -191,7 +191,7 @@ public final class LlamaCppEngine: InferenceEngine {
         let inputLimit = max(1, Int(nContext) - Int(maxTokens))
 
         if let continuation = prompt.continuation {
-            try continueText(continuation, inputLimit: inputLimit, onToken: onToken)
+            try continueText(continuation.healingOnlySpace, inputLimit: inputLimit, onToken: onToken)
             return
         }
 

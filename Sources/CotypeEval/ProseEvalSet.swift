@@ -69,6 +69,56 @@ public enum ProseEvalSet {
         )
     }
 
+    private static func midword(_ prefix: String, _ expected: String, tag: String) -> EvalCase {
+        EvalCase(
+            id: "\(tag)-\(prefix.suffix(18))",
+            prefix: prefix,
+            expected: expected,
+            forbiddenSubstrings: authorDetails + assistantTalk,
+            rubricTags: ["midword", tag]
+        )
+    }
+
+    /// The caret stops partway through a word, or right after a whole one. The
+    /// `word` group ends on a real word that is also the start of a likelier
+    /// one, which a spell checker cannot tell apart. `whole` guards the opposite
+    /// mistake: a finished word must still get its space.
+    public static let midwordCases: [EvalCase] = [
+        midword("I wanted to ask you a questi", "on", tag: "partial"),
+        midword("Let me get back to you tomorr", "ow", tag: "partial"),
+        midword("I can't make it becau", "se", tag: "partial"),
+        midword("Thanks for the informa", "tion", tag: "partial"),
+        midword("We should probab", "ly", tag: "partial"),
+        midword("hmm ok that seems fine to me.\n\nlet me kno", "w", tag: "partial"),
+        midword("Sorry for the late respon", "se", tag: "partial"),
+        midword("Could you send me the docum", "ent", tag: "partial"),
+        midword("we nee", "d", tag: "partial"),
+        midword("I would really appreci", "ate", tag: "partial"),
+        midword("Hope you had a good weeke", "nd", tag: "partial"),
+        midword("Can we schedu", "le", tag: "partial"),
+
+        midword("hmm ok that seems fine to me.\n\nso i thin", "k", tag: "word"),
+        midword("I don't wan", "t", tag: "word"),
+        midword("Let's have a meet", "ing", tag: "word"),
+        midword("Are you goin", "g", tag: "word"),
+        midword("I wil", "l", tag: "word"),
+        midword("Thanks for your hel", "p", tag: "word"),
+        midword("Can you tel", "l", tag: "word"),
+        midword("We have to wor", "k", tag: "word"),
+        midword("I really like tha", "t", tag: "word"),
+        midword("What are you doin", "g", tag: "word"),
+
+        midword("I went to the", " ", tag: "whole"),
+        midword("lets not go to", " ", tag: "whole"),
+        midword("Thanks for sending the report", " ", tag: "whole"),
+        midword("Let me know if you", " ", tag: "whole"),
+        midword("I think we should", " ", tag: "whole"),
+        midword("Can you send me the", " ", tag: "whole"),
+        midword("We talked about it in", " ", tag: "whole"),
+        midword("She said that she", " ", tag: "whole"),
+        midword("Please check the numbers and", " ", tag: "whole"),
+    ]
+
     public static let cases: [EvalCase] = [
         unrelated("thanks for"), unrelated("The meeting"), unrelated("The meeting went"),
         unrelated("I think we should"), unrelated("Can you send me"), unrelated("hey, are you"),

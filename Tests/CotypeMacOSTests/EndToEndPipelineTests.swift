@@ -157,12 +157,13 @@ final class EndToEndPipelineTests: XCTestCase {
         }
         if testCase.style == .continuation, testCase.expectsRequest,
            let body = FakeLlamaServer.lastCompletionBody {
-            // Token healing: a prompt never ends on the caret's single space,
-            // and then the grammar forces the model to write it.
+            // Healing: a prompt never ends on the caret's single space or a
+            // trailing word, and then the grammar forces the model to write it.
             let prompt = body["prompt"] as? String ?? ""
-            let healed = testCase.before.hasSuffix(" ") && !testCase.before.hasSuffix("  ")
-            if healed != (body["grammar"] != nil) { return "grammar presence wrong" }
-            if healed && prompt.hasSuffix(" ") { return "prompt still ends in the caret space" }
+            let leading = ContinuationPrompt.healed(testCase.before).requiredLeading
+            if FakeLlamaServer.forcedLeading(body) != leading { return "grammar forces the wrong text" }
+            if !leading.isEmpty && prompt.hasSuffix(leading) { return "prompt still ends in the healed text" }
+            if !(prompt + leading).hasSuffix(testCase.before) { return "prompt and healed text lost the typed text" }
             if (body["stop"] as? [String]) != ["\n"] { return "stop sequences \(String(describing: body["stop"]))" }
         }
         return nil
@@ -520,9 +521,10 @@ private final class FakeLlamaServer: URLProtocol {
             for stop in stops where !stop.isEmpty {
                 if let range = text.range(of: stop) { text = String(text[..<range.lowerBound]) }
             }
-            if body["grammar"] != nil, !text.isEmpty, !text.hasPrefix(" ") {
+            let leading = Self.forcedLeading(body)
+            if !text.isEmpty, !text.hasPrefix(leading) {
                 // A grammar-constrained server can never produce this.
-                text = " " + text
+                text = leading + text
             }
             streamSSE(Self.tokens(text).map { #"{"choices":[{"text":\#(Self.jsonString($0)),"index":0}]}"# })
         case "/v1/chat/completions":
@@ -532,6 +534,15 @@ private final class FakeLlamaServer: URLProtocol {
         default:
             client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
         }
+    }
+
+    /// The literal a request's grammar forces the output to begin with.
+    static func forcedLeading(_ body: [String: Any]) -> String {
+        guard let grammar = body["grammar"] as? String,
+              let open = grammar.firstIndex(of: "\""),
+              let close = grammar.lastIndex(of: "\""), open < close
+        else { return "" }
+        return String(grammar[grammar.index(after: open)..<close])
     }
 
     /// Split like a tokenizer: pieces carry their leading space.
