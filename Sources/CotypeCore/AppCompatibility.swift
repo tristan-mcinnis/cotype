@@ -92,6 +92,14 @@ public enum AppCompatibility {
         chromiumBrowsers.contains(bundleID) || isElectron(bundleURL: bundleURL)
     }
 
+    /// Whether the app's text fields ignore an `AXSelectedText` write. Chromium
+    /// and Electron fields report the attribute as settable and return success
+    /// from the write, but the text does not change. Insertion in these apps must
+    /// use the paste route, or an accept reports success and inserts nothing.
+    public static func ignoresSelectedTextWrites(bundleID: String, bundleURL: URL?) -> Bool {
+        needsWebAccessibilityWake(bundleID: bundleID, bundleURL: bundleURL)
+    }
+
     private static let cacheLock = NSLock()
     nonisolated(unsafe) private static var electronCache: [String: Bool] = [:]
 }

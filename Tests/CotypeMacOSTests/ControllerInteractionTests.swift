@@ -292,6 +292,61 @@ final class ControllerInteractionTests: XCTestCase {
         XCTAssertFalse(controller.isAcceptKeyReady)
     }
 
+    /// The ghost is drawn as it streams, so Tab must work from the first visible
+    /// word. Left to the app, it would insert a tab and dismiss the suggestion.
+    func testStreamingGhostTakesTheAcceptKeyAndAcceptsWhatIsShown() async {
+        let (controller, inserter) = makeController(
+            engine: MockInferenceEngine(response: "alpha beta gamma", wordDelayNanoseconds: 80_000_000),
+            renderer: GhostTextRenderer(geometryProvider: FixedGeometry())
+        )
+        XCTAssertTrue(controller.trigger())
+        let streaming = await waitUntil { controller.phase == .generating && controller.isGhostVisible }
+        XCTAssertTrue(streaming)
+        XCTAssertTrue(controller.isAcceptKeyReady)
+        let shown = controller.currentCandidate
+
+        controller.acceptNextWord()
+        let inserted = await waitUntil { !inserter.inserted.isEmpty }
+        XCTAssertTrue(inserted)
+        XCTAssertEqual(inserter.inserted, [CompletionInteraction.nextWordSegment(shown)])
+
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(inserter.inserted.count, 1, "the cancelled generation must not add anything")
+        XCTAssertFalse(controller.isBusy)
+    }
+
+    /// The caret moves only when the word lands. Drawing the remainder before
+    /// that would put it over the word being inserted.
+    func testSteppedRemainderIsDrawnOnlyAfterTheWordLands() async {
+        let renderer = PresentRecordingRenderer()
+        let defaults = makeUserDefaults()
+        defaults.set(true, forKey: "enableCompletions")
+        let inserter = SlowInserter(delayNanoseconds: 150_000_000)
+        let controller = CompletionController(
+            engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
+            personalization: makePersonalizationStore(),
+            overrides: AppOverridesStore(fileURL: tempFileURL("overrides")),
+            websiteRules: makeWebsiteRulesStore(),
+            inserter: inserter,
+            renderer: renderer,
+            pipelineEngineOverride: MockInferenceEngine(response: "world peace", wordDelayNanoseconds: 0),
+            frontmostAppProvider: { "com.example.editor" },
+            focusIdentityProvider: StubFocusIdentityProvider(Self.stableFocus),
+            userDefaults: defaults
+        )
+        XCTAssertTrue(controller.trigger())
+        _ = await waitUntil { controller.phase == .awaitingAccept }
+
+        controller.acceptNextWord()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(inserter.inserted.isEmpty)
+        XCTAssertFalse(renderer.presented.contains("peace"), "drawn before the word landed")
+
+        let landed = await waitUntil { renderer.presented.last == "peace" }
+        XCTAssertTrue(landed)
+        XCTAssertEqual(inserter.inserted, ["world "])
+    }
+
     func testVisibleOverlayIsCountedOnceAsShown() async {
         let defaults = makeUserDefaults()
         defaults.set(true, forKey: "enableCompletions")
@@ -691,6 +746,15 @@ private final class AdvancingTargetInserter: CompletionInserter, @unchecked Send
             )
         }
     }
+}
+
+/// A renderer that records each candidate it was told to draw.
+private final class PresentRecordingRenderer: CompletionRenderer, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+    var presented: [String] { lock.withLock { recorded } }
+    func present(_ candidate: String, for request: CompletionRequest) { lock.withLock { recorded.append(candidate) } }
+    func clear() {}
 }
 
 /// An inserter with a per-insert delay so serialization is observable: if commit

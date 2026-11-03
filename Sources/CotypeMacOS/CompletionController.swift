@@ -126,6 +126,8 @@ public final class CompletionController: ObservableObject {
     /// for them are refused, and a later generation is unaffected because it has a
     /// distinct epoch.
     private var failedCommitEpochs: Set<Int> = []
+    /// Accepted segments queued or being inserted.
+    private var commitsInFlight = 0
 
     public init(
         engineManager: EngineManager,
@@ -176,10 +178,13 @@ public final class CompletionController: ObservableObject {
     public var isBusy: Bool { phase == .generating }
     public var hasPendingCompletion: Bool { phase == .awaitingAccept }
     public var candidateAvailable: Bool { !currentCandidate.isEmpty }
-    /// Whether the accept key may be taken from the focused app: a candidate is
-    /// ready AND the user can see it. A hidden candidate must never swallow Tab
-    /// and insert text the user did not see; Tab then reaches the app as usual.
-    public var isAcceptKeyReady: Bool { hasPendingCompletion && isGhostVisible }
+    /// Whether the accept key may be taken from the focused app: a suggestion is
+    /// ready or still streaming, AND the user can see it. A hidden candidate must
+    /// never swallow Tab and insert text the user did not see; Tab then reaches
+    /// the app as usual.
+    public var isAcceptKeyReady: Bool {
+        (hasPendingCompletion || (isBusy && candidateAvailable)) && isGhostVisible
+    }
 
     private func observeFrontmostChanges() {
         frontmostChangeObserver = NotificationCenter.default.addObserver(
@@ -284,8 +289,19 @@ public final class CompletionController: ObservableObject {
     /// see. A hidden candidate must never insert text, and Tab must reach the
     /// app as usual in that case.
     public func acceptNextWord() {
+        settleVisibleStream()
         guard canAcceptVisiblePreview() else { return }
+        CotypeLog.loop.info("accept: next word in \(self.activeAppIdentifier, privacy: .public)")
         applyInteraction(.acceptNextWord)
+    }
+
+    /// The ghost is drawn while it streams, so an accept can arrive before the
+    /// generation ends. The user accepts what they see: what is on screen becomes
+    /// the candidate, and the commit path cancels the rest of the generation.
+    private func settleVisibleStream() {
+        guard phase == .generating, candidateAvailable, isGhostVisible else { return }
+        flow.candidateReady()
+        applyInteraction(.generated(interaction.ghost))
     }
 
     /// Dismiss the current candidate and briefly pause auto-trigger (Escape).
@@ -626,6 +642,7 @@ public final class CompletionController: ObservableObject {
     /// Accept the whole suggestion (full-suggestion chord / menu). Routes through
     /// the machine so the loop stays consistent.
     public func accept() {
+        settleVisibleStream()
         guard canAcceptVisiblePreview(), candidateAvailable, activeAppIdentifier != "unknown" else {
             return
         }
@@ -634,6 +651,7 @@ public final class CompletionController: ObservableObject {
             cancel(recordingRejection: true)
             return
         }
+        CotypeLog.loop.info("accept: whole suggestion in \(self.activeAppIdentifier, privacy: .public)")
         applyInteraction(.acceptAll)
     }
 
@@ -748,6 +766,11 @@ public final class CompletionController: ObservableObject {
         }
         currentCandidate = interaction.ghost
 
+        // While a stepped word is landing, the caret has not moved yet. Leave the
+        // ghost as it is: drawing the remainder now would put it over the word
+        // being inserted. The commit redraws it when the insert is done.
+        if commitsInFlight > 0, !interaction.ghost.isEmpty { return }
+
         if interaction.ghost != lastRenderedGhost {
             lastRenderedGhost = interaction.ghost
             if interaction.ghost.isEmpty {
@@ -844,9 +867,14 @@ public final class CompletionController: ObservableObject {
         // target before clear state").
 
         let previous = commitTask
+        commitsInFlight += 1
         commitTask = Task { [weak self] in
             await previous?.value
             guard let self else { return }
+            defer {
+                self.commitsInFlight -= 1
+                self.refreshFromInteraction()
+            }
             // Skip if this chain was superseded by a fresh generation or already
             // failed — never insert a segment the machine no longer stands behind.
             guard self.activeRenderGenerationID == epoch,
@@ -872,6 +900,7 @@ public final class CompletionController: ObservableObject {
 
             do {
                 try await self.inserter.insert(text, appIdentifier: appIdentifier, focusTarget: expectedTarget)
+                CotypeLog.loop.info("insert: \(text.count, privacy: .public) chars in \(appIdentifier, privacy: .public)")
                 await MainActor.run {
                     // A stepped insert advances the caret; refresh the active
                     // target deterministically from the approved element/range and

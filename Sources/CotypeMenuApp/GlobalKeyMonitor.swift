@@ -367,7 +367,7 @@ public final class GlobalKeyMonitor {
         }
     }
 
-    /// True while a completion is in flight or awaiting acceptance.
+    /// Which key accepts a suggestion and how much one press takes.
     public var acceptBehavior: AcceptBehavior = AcceptBehaviorStore.load() {
         didSet {
             guard oldValue != acceptBehavior else { return }
@@ -375,6 +375,7 @@ public final class GlobalKeyMonitor {
         }
     }
 
+    /// True while a completion is in flight or awaiting acceptance.
     public var isCompletionActive = false {
         didSet {
             guard oldValue != isCompletionActive else { return }
@@ -382,8 +383,8 @@ public final class GlobalKeyMonitor {
         }
     }
 
-    /// True only once a candidate is fully generated, awaiting acceptance, and
-    /// its ghost is on screen (`CompletionController.isAcceptKeyReady`).
+    /// True while a suggestion is ready or streaming and its ghost is on screen
+    /// (`CompletionController.isAcceptKeyReady`).
     public var isAcceptReady = false {
         didSet {
             guard oldValue != isAcceptReady else { return }

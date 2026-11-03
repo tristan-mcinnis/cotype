@@ -286,6 +286,33 @@ final class InsertionRouterTests: XCTestCase {
         XCTAssertEqual(pasteboard.inserted, [long])
     }
 
+    func testAppThatIgnoresDirectWritesPastesWithoutTryingDirect() async throws {
+        let direct = RecordingDirectInserter(.inserted)
+        let pasteboard = RecordingInserter()
+        let r = CompletionInsertionRouter(
+            focusIdentityProvider: StubFocusIdentityProvider(captured),
+            directInserter: direct,
+            pasteboardInserter: pasteboard,
+            ignoresDirectWrites: { $0 == "com.a" }
+        )
+
+        try await r.insert("hi", appIdentifier: "com.a", focusTarget: captured)
+
+        XCTAssertTrue(direct.inserted.isEmpty, "a direct write here reports success and inserts nothing")
+        XCTAssertEqual(pasteboard.inserted, ["hi"])
+    }
+
+    func testChromiumAndElectronAppsIgnoreDirectWrites() throws {
+        XCTAssertTrue(AppCompatibility.ignoresSelectedTextWrites(bundleID: "net.imput.helium", bundleURL: nil))
+        XCTAssertFalse(AppCompatibility.ignoresSelectedTextWrites(bundleID: "com.apple.TextEdit", bundleURL: nil))
+
+        let bundle = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let framework = bundle.appendingPathComponent("Contents/Frameworks/Electron Framework.framework")
+        try FileManager.default.createDirectory(at: framework, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        XCTAssertTrue(AppCompatibility.ignoresSelectedTextWrites(bundleID: "com.example.app", bundleURL: bundle))
+    }
+
     func testIncompatibleFieldFallsBackToPasteboard() async throws {
         let direct = RecordingDirectInserter(.unsupported)
         let pasteboard = RecordingInserter()

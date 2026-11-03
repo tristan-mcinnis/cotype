@@ -163,6 +163,9 @@ public struct AXDirectTextInserter: DirectTextInserter {
         let (insertionEnd, overflow) = range.location.addingReportingOverflow(textLength)
         guard !overflow else { return .unsupported }
         guard session.setSelectedText(text) else { return .failed }
+        if let after = session.selectedRange(), after.location == range.location, after.length == range.length {
+            CotypeLog.loop.info("insert: direct write left the caret in place in \(appIdentifier, privacy: .public)")
+        }
         // Restore the caret after the inserted text only when supported. This is
         // best-effort: the text is already inserted; a failed caret move is not a
         // failure of the insertion itself.
@@ -180,8 +183,9 @@ public struct AXDirectTextInserter: DirectTextInserter {
 }
 
 /// The default `CompletionInserter`: routes a normal, short completion to direct
-/// Accessibility insertion when the focused element supports it, and falls back
-/// to the pasteboard Cmd+V route for incompatible or long fields.
+/// Accessibility insertion when the focused element supports it, and uses the
+/// pasteboard Cmd+V route for Chromium and Electron apps (which ignore the direct
+/// write) and for incompatible or long fields.
 ///
 /// Safety guarantees layered on top of the pasteboard route:
 /// - The focused-field identity captured at trigger time is re-verified in the
@@ -220,13 +224,22 @@ public struct CompletionInsertionRouter: CompletionInserter {
     private let focusIdentityProvider: FocusIdentityProvider?
     private let directInserter: DirectTextInserter?
     private let pasteboardInserter: CompletionInserter
+    /// Whether the app with this bundle id ignores a direct AX write.
+    private let ignoresDirectWrites: @Sendable (String) -> Bool
 
     public init(
         maxDirectTextLength: Int = 512,
         focusIdentityProvider: FocusIdentityProvider? = nil,
         directInserter: DirectTextInserter? = nil,
-        pasteboardInserter: CompletionInserter = PasteboardInserter()
+        pasteboardInserter: CompletionInserter = PasteboardInserter(),
+        ignoresDirectWrites: @escaping @Sendable (String) -> Bool = { bundleID in
+            AppCompatibility.ignoresSelectedTextWrites(
+                bundleID: bundleID,
+                bundleURL: NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.bundleURL
+            )
+        }
     ) {
+        self.ignoresDirectWrites = ignoresDirectWrites
         self.maxDirectTextLength = maxDirectTextLength
         self.focusIdentityProvider = focusIdentityProvider
         self.directInserter = directInserter
@@ -262,7 +275,7 @@ public struct CompletionInsertionRouter: CompletionInserter {
                 KeystrokeTyper.type(text)
                 return .inserted
             }
-            guard shouldTryDirect, let appIdentifier else { return .pasteboard }
+            guard shouldTryDirect, let appIdentifier, !ignoresDirectWrites(appIdentifier) else { return .pasteboard }
             let direct = directInserter ?? AXDirectTextInserter()
             switch direct.insertDirect(text, appIdentifier: appIdentifier, focusTarget: focusTarget) {
             case .inserted: return .inserted

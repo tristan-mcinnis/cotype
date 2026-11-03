@@ -77,6 +77,7 @@ public struct AXTextContextProvider: ContextProvider {
         // system-wide seed fallback lives inside the resolver so every stage
         // (context, focus identity, rendering, insertion) picks the same element.
         guard let focusedElement = AXFocusedEditorResolver.resolve(in: app) else {
+            CotypeLog.loop.info("unreadable: no editor resolved in \(bundleID, privacy: .public)")
             throw SensitiveContextError.unreadable
         }
 
@@ -106,6 +107,7 @@ public struct AXTextContextProvider: ContextProvider {
         case .gated(let category):
             throw SensitiveContextError.gated(category)
         case .unreadable:
+            CotypeLog.loop.info("unreadable: ancestry could not be verified in \(bundleID, privacy: .public)")
             throw SensitiveContextError.unreadable
         }
 
@@ -114,6 +116,7 @@ public struct AXTextContextProvider: ContextProvider {
         // that would bypass the fail-closed guarantee and could still generate
         // or record a completion for an unknown element.
         guard let text = attributeValue(focusedElement, kAXValueAttribute) as String? else {
+            CotypeLog.loop.info("unreadable: no string value in \(bundleID, privacy: .public)")
             throw SensitiveContextError.unreadable
         }
 
@@ -136,10 +139,12 @@ public struct AXTextContextProvider: ContextProvider {
             case .unsupported:
                 contextRange = nil
             case .unavailable:
+                CotypeLog.loop.info("unreadable: no selection range in \(bundleID, privacy: .public)")
                 throw SensitiveContextError.unreadable
             }
         }
         guard let split = ContextSplit.split(text, range: contextRange) else {
+            CotypeLog.loop.info("unreadable: selection range outside the text in \(bundleID, privacy: .public)")
             throw SensitiveContextError.unreadable
         }
         let (prefix, suffix) = (split.prefix, split.suffix)
