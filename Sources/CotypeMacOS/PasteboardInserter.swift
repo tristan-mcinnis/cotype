@@ -63,6 +63,9 @@ public struct SystemClipboardOperator: ClipboardOperator {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         guard pasteboard.setString(text, forType: .string) else { return nil }
+        // The convention clipboard managers honour: this text is passing through,
+        // so an accepted word does not land in the user's clipboard history.
+        pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
         return pasteboard.changeCount
     }
 

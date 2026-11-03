@@ -233,6 +233,20 @@ final class SensitiveAncestryTests: XCTestCase {
         XCTAssertEqual(verdict, .unreadable)
     }
 
+    /// The editor in a deep Electron page sits 36 levels below the app root.
+    func testEditorInADeepElectronPageIsReadable() {
+        var steps: [AXAncestryToken: AXAncestryStep] = [:]
+        for i in 0..<36 {
+            steps[token(UInt(i))] = AXAncestryStep(facts: readable, parent: token(UInt(i + 1)))
+        }
+        steps[token(36)] = AXAncestryStep(facts: readable)
+        let verdict = SensitiveAncestryPolicy.evaluate(
+            start: token(0),
+            reader: StubAXAncestryReader(steps: steps)
+        )
+        XCTAssertEqual(verdict, .safe)
+    }
+
     func testDetectorCombinesAncestryVerdict() {
         let detector = SensitiveContextDetector()
         XCTAssertEqual(

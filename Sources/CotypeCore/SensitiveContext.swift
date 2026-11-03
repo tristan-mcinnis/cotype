@@ -99,10 +99,10 @@ public protocol AXAncestryReader {
 /// inspected element is readable and non-sensitive AND the chain terminates
 /// naturally.
 public enum SensitiveAncestryPolicy {
-    /// A strict, small cap on how many ancestors to walk before refusing. Long
-    /// enough to reach the window/app root for normal editors, short enough to
-    /// bound a pathological or maliciously deep chain.
-    public static let maxDepth = 24
+    /// A cap on how many ancestors to walk before refusing. Long enough to reach
+    /// the app root from an editor in a deep Electron page (measured at 36 in the
+    /// Claude desktop app), short enough to bound a pathological chain.
+    public static let maxDepth = 64
 
     public static func evaluate(start: AXAncestryToken, reader: AXAncestryReader) -> SensitiveContextVerdict {
         var seen: Set<AXAncestryToken> = [start]
