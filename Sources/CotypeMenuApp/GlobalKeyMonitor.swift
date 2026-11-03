@@ -107,13 +107,21 @@ final class KeyboardTapEngine: @unchecked Sendable {
     /// loop itself, so it also lands correctly if the thread has not reached
     /// `CFRunLoopRun()` yet. The tap thread then removes its own source and
     /// invalidates the port.
+    ///
+    /// Every `tapEnable` runs under `lock`, and the tap thread clears `installed`
+    /// under `lock` before it invalidates the port. A call on an invalidated port
+    /// crashes the process, so no thread may enable a port it read earlier.
     func stop() {
         lock.lock()
+        guard wantsRunning else {
+            lock.unlock()
+            return
+        }
         wantsRunning = false
         let current = installed
+        if let current { CGEvent.tapEnable(tap: current.tap, enable: false) }
         lock.unlock()
         guard let current else { return }
-        CGEvent.tapEnable(tap: current.tap, enable: false)
         CFRunLoopPerformBlock(current.loop, CFRunLoopMode.commonModes.rawValue as CFString) {
             CFRunLoopStop(CFRunLoopGetCurrent())
         }
@@ -123,9 +131,8 @@ final class KeyboardTapEngine: @unchecked Sendable {
     /// Turn a system-disabled tap back on without rebuilding it.
     func reEnable() {
         lock.lock()
-        let current = installed
-        lock.unlock()
-        guard let current else { return }
+        defer { lock.unlock() }
+        guard wantsRunning, let current = installed else { return }
         CGEvent.tapEnable(tap: current.tap, enable: true)
     }
 
@@ -188,8 +195,11 @@ final class KeyboardTapEngine: @unchecked Sendable {
 
         // Teardown on the tap thread itself: removing the source here avoids
         // mutating the run loop from another thread.
-        CFRunLoopRemoveSource(loop, source, .commonModes)
+        lock.lock()
+        installed = nil
         CGEvent.tapEnable(tap: tap, enable: false)
+        lock.unlock()
+        CFRunLoopRemoveSource(loop, source, .commonModes)
         CFMachPortInvalidate(tap)
         finishThread()
     }
@@ -211,8 +221,9 @@ final class KeyboardTapEngine: @unchecked Sendable {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
             // The system turned the tap off without asking. Recover on the main
-            // actor, which knows whether it is still wanted.
-            deliver(.recoverDisabledTap(mode))
+            // actor, which knows whether it is still wanted. A tap being stopped
+            // has nothing to recover.
+            if isWanted { deliver(.recoverDisabledTap(mode)) }
             return Unmanaged.passUnretained(event)
         case .keyDown:
             break
@@ -259,6 +270,12 @@ final class KeyboardTapEngine: @unchecked Sendable {
                 return Unmanaged.passUnretained(event)
             }
         }
+    }
+
+    private var isWanted: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return wantsRunning
     }
 
     private func readSnapshot() -> TapRouteSnapshot {
