@@ -511,7 +511,7 @@ public final class CompletionController: ObservableObject {
                 let result = try await pipeline.complete(request)
                 await MainActor.run {
                     guard self.flow.isCurrent(myID) else { return }
-                    self.completeSuccessfully(result, abstained: pipeline.lastRunAbstained)
+                    self.completeSuccessfully(result, abstention: pipeline.lastAbstention)
                 }
             } catch is CancellationError {
                 await MainActor.run {
@@ -534,7 +534,7 @@ public final class CompletionController: ObservableObject {
         return true
     }
 
-    private func completeSuccessfully(_ result: String, abstained: Bool) {
+    private func completeSuccessfully(_ result: String, abstention: NotShownReason?) {
         CotypeLog.loop.debug("generated \(result.count, privacy: .public) chars for \(self.activeAppIdentifier, privacy: .public)")
         // Validate the exact focus target once at the candidate boundary — the
         // last moment before a ghost could be drawn or accepted — rather than on
@@ -549,7 +549,7 @@ public final class CompletionController: ObservableObject {
         }
         if result.isEmpty {
             CotypeLog.loop.info("none: no usable suggestion for \(self.activeAppIdentifier, privacy: .public)")
-            noteNotShown(abstained ? .abstainedInsideWord : .emptyCompletion, appIdentifier: activeAppIdentifier)
+            noteNotShown(abstention ?? .emptyCompletion, appIdentifier: activeAppIdentifier)
             flow.finishWithoutCandidate()
             applyInteraction(.noSuggestion)
             clearRequestIdentity()

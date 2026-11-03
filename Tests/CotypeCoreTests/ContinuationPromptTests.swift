@@ -82,6 +82,28 @@ final class ContinuationPromptTests: XCTestCase {
         }
     }
 
+    func testPipelineNamesWhyItAbstained() async throws {
+        func abstention(prefix: String, suffix: String) async throws -> NotShownReason? {
+            let pipeline = CompletionPipeline(
+                contextProvider: StaticContextProvider(),
+                promptBuilder: TemplatePromptBuilder(),
+                engine: MockInferenceEngine(response: "words", wordDelayNanoseconds: 0),
+                renderer: NoopRenderer(),
+                inserter: PrintInserter()
+            )
+            pipeline.abstainsOnTooLittleText = true
+            let request = CompletionRequest(appIdentifier: "test", prefix: prefix, suffix: suffix, extra: [:])
+            _ = try await pipeline.completeWithOutcome(request)
+            return pipeline.lastAbstention
+        }
+        let tooShort = try await abstention(prefix: "hey", suffix: "")
+        XCTAssertEqual(tooShort, .abstainedTooLittleText)
+        let insideWord = try await abstention(prefix: "hel", suffix: "lo there")
+        XCTAssertEqual(insideWord, .abstainedInsideWord)
+        let generated = try await abstention(prefix: "Thanks for sending the ", suffix: "")
+        XCTAssertNil(generated)
+    }
+
     func testPipelineAbstainsOnTooLittleTextOnlyWithoutVisibleText() async throws {
         func outcome(_ prefix: String, window: String = "") async throws -> CompletionOutcome {
             let pipeline = CompletionPipeline(

@@ -20,6 +20,7 @@ public enum NotShownReason: String, CaseIterable, Codable, Sendable {
     case engineFailure
     case cancelledWhileGenerating
     case abstainedInsideWord
+    case abstainedTooLittleText
     case emptyCompletion
     case focusChangedDuringGeneration
     case focusMismatchAtRender
@@ -51,6 +52,7 @@ public enum NotShownReason: String, CaseIterable, Codable, Sendable {
         case .engineFailure: return "Model or engine error"
         case .cancelledWhileGenerating: return "Cancelled before a result"
         case .abstainedInsideWord: return "Caret inside a word"
+        case .abstainedTooLittleText: return "Too little text to go on"
         case .emptyCompletion: return "Model gave nothing usable"
         case .focusChangedDuringGeneration: return "Focus moved during generation"
         case .focusMismatchAtRender: return "Focus moved before drawing"
