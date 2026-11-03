@@ -43,7 +43,7 @@ struct PrivacyDataPane: View {
 
             SettingsCard(title: "Feedback storage", subtitle: "Choose what Cotype records") {
                 SlateRow(
-                    title: "Store accepted and dismissed completions",
+                    title: "Store what I write and the completions I accept or dismiss",
                     detail: "When off, Cotype writes no content records to disk. A small, content-free usage count is always kept so you can see how Cotype is used."
                 ) {
                     InkSwitch(isOn: $learnFromFeedback)

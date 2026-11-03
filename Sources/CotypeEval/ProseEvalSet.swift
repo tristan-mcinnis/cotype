@@ -119,6 +119,65 @@ public enum ProseEvalSet {
         midword("Please check the numbers and", " ", tag: "whole"),
     ]
 
+    /// Invented past writing by an invented fieldwork researcher.
+    public static let authorWriting = [
+        "ok i'll check the transcripts tonight and flag anything weird",
+        "can you send me the screener before the kickoff",
+        "the moderator guide still needs a pass, i'll do it after lunch",
+        "hey mei, the chengdu interviews are confirmed for tuesday",
+        "i think the fieldwork is on track but recruitment is a bit slow",
+        "sorry for the late reply, was stuck in the debrief",
+        "let me look at the deck and get back to you tomorrow morning",
+        "we should push the shanghai groups by a week if recruitment slips",
+        "can you share the quote bank when it's ready",
+        "i'll ping the client once the discussion guide is signed off",
+        "let's do a quick call before the debrief so we're aligned",
+        "i need the translated transcripts by friday at the latest",
+        "looks fine to me, send the costing over when you can",
+        "not sure about the third theme, feels thin, can we dig into the quotes",
+        "the client asked for a topline by monday so let's prioritize that",
+        "please check the recruiter's numbers against the screener",
+    ]
+
+    private static func learned(_ prefix: String, _ fits: String, tag: String) -> EvalCase {
+        EvalCase(
+            id: "\(tag)-\(prefix.suffix(20))",
+            prefix: prefix,
+            expected: fits,
+            forbiddenSubstrings: assistantTalk,
+            rubricTags: ["learned", tag]
+        )
+    }
+
+    /// Read with and without `--no-writing`. `expected` lists words that fit this
+    /// author, split by "|". `said` retraces a phrase from `authorWriting`, `new`
+    /// does not, and `other` is about something else, so the author's world must
+    /// stay out of it.
+    public static let learnedCases: [EvalCase] = [
+        learned("can you send me the", "screener|transcripts|deck|quote|costing|guide|topline", tag: "said"),
+        learned("i'll check the", "transcripts|screener|deck|numbers|quotes", tag: "said"),
+        learned("the client asked for", "topline|deck|quote|costing", tag: "said"),
+        learned("we should push the", "groups|fieldwork|kickoff|interviews|debrief|shanghai", tag: "said"),
+        learned("let's do a quick", "call", tag: "said"),
+        learned("i need the", "transcripts|screener|deck|quote|topline|translated", tag: "said"),
+        learned("please check the", "recruiter|numbers|screener|transcripts|quotes", tag: "said"),
+        learned("not sure about the", "third|theme|quote|sample|screener", tag: "said"),
+
+        learned("could you forward the", "screener|transcripts|deck|quote|costing|guide|topline|debrief", tag: "new"),
+        learned("i'll review the", "transcripts|screener|deck|quotes|guide|topline|costing", tag: "new"),
+        learned("did you see the", "transcripts|screener|deck|quotes|guide|topline|costing|debrief", tag: "new"),
+        learned("before the kickoff we", "screener|guide|recruit|moderator|deck", tag: "new"),
+        learned("the recruitment in", "chengdu|shanghai|city|guangzhou|beijing", tag: "new"),
+        learned("i'm still waiting on the", "transcripts|screener|deck|quote|costing|recruiter|client", tag: "new"),
+
+        learned("The dishwasher", "kitchen", tag: "other"),
+        learned("happy birthday! hope", "birthday|day", tag: "other"),
+        learned("my flight to", "flight", tag: "other"),
+        learned("the kids are", "kids", tag: "other"),
+        learned("the restaurant was", "food|good", tag: "other"),
+        learned("my dad said", "dad", tag: "other"),
+    ]
+
     public static let cases: [EvalCase] = [
         unrelated("thanks for"), unrelated("The meeting"), unrelated("The meeting went"),
         unrelated("I think we should"), unrelated("Can you send me"), unrelated("hey, are you"),

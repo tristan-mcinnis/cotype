@@ -177,6 +177,8 @@ var cases = hasFlag("--window-context-set")
             ? SeededEvalSet.adherenceCases
             : (flagValue("--set") == "midword"
                 ? ProseEvalSet.midwordCases
+                : flagValue("--set") == "learned"
+                ? ProseEvalSet.learnedCases
                 : (flagValue("--set") == "prose" ? ProseEvalSet.cases : SeededEvalSet.cases))
 if limit > 0 { cases = Array(cases.prefix(limit)) }
 let results = await EvalRunner.run(
@@ -186,7 +188,8 @@ let results = await EvalRunner.run(
     style: promptStyle,
     length: evalLength,
     examples: evalExamples,
-    personalFacts: flagValue("--set") == "prose" ? ProseEvalSet.facts : ""
+    personalFacts: flagValue("--set") == "prose" ? ProseEvalSet.facts : "",
+    writing: (flagValue("--set") == "learned" && !hasFlag("--no-writing")) || hasFlag("--writing") ? ProseEvalSet.authorWriting : []
 )
 let summary = EvalSummary(results: results)
 

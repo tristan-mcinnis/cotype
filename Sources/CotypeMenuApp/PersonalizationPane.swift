@@ -20,8 +20,8 @@ struct PersonalizationPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: House.Spacing.xl) {
-            SettingsCard(title: "Learning", subtitle: "Accepted examples are used in the Instructions prompt style") {
-                SlateRow(title: "Learn from accepted and rejected completions") {
+            SettingsCard(title: "Learning", subtitle: "Sentences you write and accept shape your suggestions. They stay on this Mac.") {
+                SlateRow(title: "Learn from what I write") {
                     InkSwitch(isOn: $learnFromFeedback)
                 }
                 SlateDivider()
@@ -50,7 +50,7 @@ struct PersonalizationPane: View {
                         if index > 0 { SlateDivider() }
                         SlateRow(
                             title: appDisplayName(for: sample.appIdentifier),
-                            detail: sample.completion.isEmpty ? nil : String(sample.completion.prefix(120)),
+                            detail: String((sample.outcome == .written ? sample.prefix : sample.completion).prefix(120)),
                             minHeight: 38
                         ) {
                             HStack(spacing: House.Spacing.xs) {

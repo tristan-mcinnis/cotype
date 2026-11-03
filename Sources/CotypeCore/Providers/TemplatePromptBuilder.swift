@@ -109,6 +109,7 @@ public enum AutocompletePrompt {
     /// The task when visible text is on screen; that text follows on a new line.
     public static let continuationReplyTask = "Write a short, ordinary reply to this:"
     public static let continuationFactsHeading = "My details:"
+    public static let continuationWritingHeading = "How I usually write:"
 
     /// The prompt an engine continues: one task turn, then the model's turn
     /// already begun with the author's text, so the model keeps writing it.
@@ -132,7 +133,8 @@ public enum AutocompletePrompt {
     public static func continuation(
         prefix: String,
         facts: String = "",
-        windowContext: String = ""
+        windowContext: String = "",
+        writing: [String] = []
     ) -> ContinuationPrompt {
         let factText = facts
             .split(whereSeparator: \.isNewline)
@@ -155,6 +157,9 @@ public enum AutocompletePrompt {
         )
 
         var task = windowBlock.isEmpty ? continuationTask : continuationReplyTask + "\n" + windowBlock
+        if !writing.isEmpty {
+            task += "\n\n" + continuationWritingHeading + "\n" + writing.map { "- " + $0 }.joined(separator: "\n")
+        }
         if !factBlock.isEmpty {
             task += "\n\n" + continuationFactsHeading + "\n" + factBlock
         }
@@ -203,7 +208,7 @@ enum ModelTalk {
     /// A fill-in slot, whole or still streaming: "[Your Name]", "[Option A]",
     /// "[Topic]". Code like `[Int]` or `[String: Any]` does not match, and a
     /// Markdown link is left alone.
-    private static let placeholder = #"\[[A-Z][A-Za-z'/]*( [A-Za-z'/]+)+\](?!\()|\[(Topic|Name|Date|Time|Company|Link)\](?!\()|\[[A-Z][A-Za-z'/]* [A-Za-z'/ ]*$"#
+    private static let placeholder = #"\[[A-Za-z][A-Za-z'/]*( [A-Za-z'/]+)+\](?!\()|\[(Topic|Name|Date|Time|Company|Link)\](?!\()|\[[A-Z][A-Za-z'/]* [A-Za-z'/ ]*$"#
     private static let offerOfOptions = #"(?i)(here are|a few) (a few |some )?options|depending on the context"#
 
     static func removed(from text: String) -> String {
@@ -263,6 +268,10 @@ public struct TemplatePromptBuilder: PromptBuilder {
     /// context block. The instruction style carries them in `systemTemplate`.
     public var personalFacts: String
 
+    /// The author's own past writing to show the continuation lane for this
+    /// context (see `WritingMemory`). Nil when learning is off.
+    public var writingExamples: ((CompletionContext) -> [String])?
+
     public init(
         systemTemplate: String = AutocompletePrompt.defaultSystem,
         userTemplate: String? = nil,
@@ -297,7 +306,8 @@ public struct TemplatePromptBuilder: PromptBuilder {
             ? AutocompletePrompt.continuation(
                 prefix: context.prefix,
                 facts: personalFacts,
-                windowContext: context.extra["windowContext"] ?? ""
+                windowContext: context.extra["windowContext"] ?? "",
+                writing: writingExamples?(context) ?? []
             )
             : nil
         return Prompt(

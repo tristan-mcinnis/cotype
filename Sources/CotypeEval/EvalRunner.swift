@@ -24,7 +24,8 @@ public struct EvalRunner {
         style: PromptStyle = .default,
         length: SuggestionLength = .default,
         examples: String = "",
-        personalFacts: String = ""
+        personalFacts: String = "",
+        writing: [String] = []
     ) async -> [EvalResult] {
         var results: [EvalResult] = []
         results.reserveCapacity(cases.count)
@@ -37,7 +38,8 @@ public struct EvalRunner {
                 style: style,
                 length: length,
                 examples: examples,
-                personalFacts: personalFacts
+                personalFacts: personalFacts,
+                writing: writing
             ))
         }
 
@@ -52,7 +54,8 @@ public struct EvalRunner {
         style: PromptStyle = .default,
         length: SuggestionLength = .default,
         examples: String = "",
-        personalFacts: String = ""
+        personalFacts: String = "",
+        writing: [String] = []
     ) async -> EvalResult {
         // `systemPrompt` is the author's custom style note for the instruction
         // lane; the continuation directive in front of it is fixed. The
@@ -71,6 +74,14 @@ public struct EvalRunner {
         )
         if !examples.isEmpty {
             builder.personalizationSummary = { examples }
+        }
+        if !writing.isEmpty {
+            let samples = writing.map {
+                PersonalizationSample(prefix: $0, completion: "", outcome: .written, appIdentifier: "eval")
+            }
+            builder.writingExamples = { context in
+                WritingMemory.examples(from: samples, prefix: context.prefix, appIdentifier: context.appIdentifier)
+            }
         }
         let pipeline = CompletionPipeline(
             contextProvider: StaticContextProvider(),

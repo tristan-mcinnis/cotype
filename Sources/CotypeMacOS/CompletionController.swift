@@ -415,6 +415,13 @@ public final class CompletionController: ObservableObject {
                     filterApp: appIdentifier
                 )
             }
+            promptBuilder.writingExamples = { context in
+                WritingMemory.examples(
+                    from: store.samples(),
+                    prefix: context.prefix,
+                    appIdentifier: context.appIdentifier
+                )
+            }
         }
 
         // Hide the previous generation, then reuse the controller's single
@@ -494,6 +501,12 @@ public final class CompletionController: ObservableObject {
                 DispatchQueue.main.async {
                     guard let self, self.flow.isCurrent(myID), self.flow.isGenerating else { return }
                     self.activePrefix = context.prefix
+                    if self.contentLoggingEnabled {
+                        self.personalization.recordWriting(
+                            fromPrefix: context.prefix,
+                            appIdentifier: context.appIdentifier
+                        )
+                    }
                 }
             }
         }

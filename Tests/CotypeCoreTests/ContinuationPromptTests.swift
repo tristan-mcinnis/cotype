@@ -58,6 +58,18 @@ final class ContinuationPromptTests: XCTestCase {
         }
     }
 
+    func testWritingGoesInTheTaskTurnOfProseOnly() {
+        let prompt = AutocompletePrompt.continuation(prefix: "can you send me the ", writing: ["i owe you the screener today"])
+        XCTAssertTrue(prompt.text.contains("How I usually write:\n- i owe you the screener today<turn|>"))
+        let code = AutocompletePrompt.continuation(prefix: "func main() {\n  let x = ", writing: ["i owe you the screener today"])
+        XCTAssertFalse(code.text.contains("screener"))
+    }
+
+    func testALowercasePlaceholderCountsAsModelTalk() {
+        XCTAssertEqual(ModelTalk.removed(from: " the recruitment in [project name] is slow"), " the recruitment in")
+        XCTAssertEqual(ModelTalk.removed(from: " items[i] is slow"), " items[i] is slow")
+    }
+
     func testOtherEndingsStayInThePrompt() {
         for text in ["by", "two  ", "line\n", "tab\t", "", "我觉得", String(repeating: "a", count: 30) + " " + String(repeating: "b", count: 25)] {
             let healed = ContinuationPrompt.healed(text)

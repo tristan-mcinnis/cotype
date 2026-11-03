@@ -14,6 +14,9 @@ public enum PersonalizationOutcome: String, Codable, Equatable, Sendable, CaseIt
     case dismissed
     case canceled
     case failed
+    /// A sentence the author wrote, kept as `prefix`. Not a completion attempt,
+    /// so it counts toward no usage metric.
+    case written
 
     /// True when the completion was really accepted. Used for the "learn from
     /// accepted completions" path that previously read `accepted: Bool`.
@@ -233,6 +236,7 @@ public struct PersonalizationMetrics: Codable, Equatable, Sendable {
         case .dismissed: return dismissed
         case .canceled: return canceled
         case .failed: return failed
+        case .written: return 0
         }
     }
 }
@@ -440,6 +444,38 @@ public final class PersonalizationStore: @unchecked Sendable {
         }
     }
 
+    /// Keep the sentences in `prefix`, as `WritingMemory` picks them. A sentence
+    /// that grew replaces its shorter self, so a message typed word by word
+    /// leaves one record. Dropped entirely when retention is `.off`.
+    public func recordWriting(fromPrefix prefix: String, appIdentifier: String) {
+        let pieces = WritingMemory.pieces(of: prefix)
+        guard !pieces.isEmpty else { return }
+        queue.sync {
+            guard config.retentionPolicy.shouldRetain else { return }
+            var changed = false
+            for piece in pieces {
+                let existing = samples.lastIndex { $0.outcome == .written && piece.hasPrefix($0.prefix) }
+                if let existing, samples[existing].prefix == piece { continue }
+                if samples.contains(where: { $0.outcome == .written && $0.prefix.hasPrefix(piece) }) { continue }
+                if let existing { samples.remove(at: existing) }
+                samples.append(PersonalizationSample(
+                    prefix: Self.capPrefix(piece),
+                    completion: "",
+                    outcome: .written,
+                    appIdentifier: appIdentifier
+                ))
+                changed = true
+            }
+            guard changed else { return }
+            let excess = samples.filter { $0.outcome == .written }.count - WritingMemory.maxKept
+            if excess > 0, let oldest = samples.firstIndex(where: { $0.outcome == .written }) {
+                samples.remove(at: oldest)
+            }
+            pruneLocked()
+            markDirtyLocked(.samples)
+        }
+    }
+
     // MARK: - Queries
 
     /// All content samples, optionally filtered to a single app's bundle
@@ -624,6 +660,7 @@ public final class PersonalizationStore: @unchecked Sendable {
         case .dismissed: metrics.dismissed += 1
         case .canceled: metrics.canceled += 1
         case .failed: metrics.failed += 1
+        case .written: break
         }
 
         var counts = metrics.perApp[appIdentifier] ?? PersonalizationMetrics.AppCounts()
@@ -633,6 +670,7 @@ public final class PersonalizationStore: @unchecked Sendable {
         case .dismissed: counts.dismissed += 1
         case .canceled: counts.canceled += 1
         case .failed: counts.failed += 1
+        case .written: break
         }
         if metrics.perApp[appIdentifier] == nil, metrics.perApp.count >= Self.maxPerAppEntries {
             // Bound the file to a fixed number of distinct apps; evict the

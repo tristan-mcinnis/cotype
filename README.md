@@ -288,8 +288,9 @@ fresh/resume/overwrite/416/range-mismatch paths, and eval metrics.
 ## Privacy and storage
 
 Inference stays local when using the menu app. If you explicitly enable content
-logging, bounded accepted/dismissed completion samples are stored as JSON Lines
-at:
+logging, the sentences you write (capped, without addresses, links, or long
+numbers) and bounded accepted/dismissed completion samples are stored as JSON
+Lines, and up to five related sentences join each prompt, at:
 
 ```text
 ~/Library/Application Support/Cotype/personalization.json
