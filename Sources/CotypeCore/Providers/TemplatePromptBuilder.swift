@@ -104,24 +104,31 @@ public enum AutocompletePrompt {
     /// a long window context can never evict them.
     public static let continuationFactsChars = 600
 
-    /// The plain-text document an engine continues.
+    /// The task the model is given when nothing on screen frames the text.
+    public static let continuationTask = "Write a short, ordinary message to a colleague."
+    /// The task when visible text is on screen; that text follows on a new line.
+    public static let continuationReplyTask = "Write a short, ordinary reply to this:"
+    public static let continuationFactsHeading = "My details:"
+
+    /// The prompt an engine continues: one task turn, then the model's turn
+    /// already begun with the author's text, so the model keeps writing it.
     ///
-    /// Background (the author's own facts, visible window text) goes in one
-    /// `<context>` block ahead of the text; the text being written comes last so
-    /// the model's next words continue it. Measured on the seeded gate set with
-    /// gemma-4-E2B-it: 72% valid at ~140 ms median vs 38% for the chat prompt.
+    /// Measured on 2026-11-03 on 66 synthetic prose cases with gemma-4-E2B-it. The
+    /// bare document made this instruction-tuned model answer as a chatbot ("I am
+    /// Gemma 4", "[Your Name]"). Asking it to "continue my text" made it reply to
+    /// that request ("I'm ready. Type away."), so the task names the kind of text,
+    /// not the act of typing. A `<context>` block read as a task too ("thanks for
+    /// the context").
     ///
-    /// Writing instructions and learned examples are deliberately NOT sent in
-    /// this lane. The instruction-tuned model continues any prose it is given,
-    /// so a note or an `- input -> output` example becomes text to imitate:
-    /// measured on 2026-10-17, examples leaked their arrows into completions.
-    /// Instructions belong in the instruction lane's system message, where the
-    /// chat template separates roles. The default install therefore keeps the
-    /// measured prompt shape.
+    /// The author's facts are sent only when the text calls for them: present on
+    /// every request, they pulled the author's name into 17 of 38 unrelated
+    /// sentences. See `AuthorFacts.areCalledFor`.
     ///
-    /// The context block is budgeted per part, in priority order: the author's
-    /// facts first, then visible window text. A long window can never evict the
-    /// facts, and the total stays within `continuationContextChars`.
+    /// Code goes as the bare document: the same run scored 22 of 29 valid on the
+    /// seeded set that way and 20 of 29 under the message task.
+    ///
+    /// The context is budgeted per part, in priority order: the author's facts
+    /// first, then visible window text, within `continuationContextChars`.
     public static func continuation(
         prefix: String,
         facts: String = "",
@@ -133,29 +140,31 @@ public enum AutocompletePrompt {
             .filter { !$0.isEmpty }
             .prefix(40)
             .joined(separator: "\n")
-        let factBlock = String(factText.prefix(continuationFactsChars))
+        let factBlock = AuthorFacts.areCalledFor(afterText: prefix)
+            ? String(factText.prefix(continuationFactsChars))
+            : ""
 
-        var background: [String] = []
-        if !factBlock.isEmpty { background.append(factBlock) }
         let used = factBlock.count + (factBlock.isEmpty ? 0 : 1)
         let windowLimit = max(0, continuationContextChars - used)
-        // Keep the tail of the window text, as the pre-budget behavior did: the
-        // text nearest the caret/most recent is at the end of the collected block.
+        // Keep the tail of the window text: the text nearest the caret/most
+        // recent is at the end of the collected block.
         let windowBlock = String(
             windowContext
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .suffix(windowLimit)
         )
-        if !windowBlock.isEmpty { background.append(windowBlock) }
 
-        var head = ""
-        if !background.isEmpty {
-            let block = background.joined(separator: "\n")
-            head = "<context>\n\(neutralizingControlMarkers(block))\n</context>\n\n"
+        var task = windowBlock.isEmpty ? continuationTask : continuationReplyTask + "\n" + windowBlock
+        if !factBlock.isEmpty {
+            task += "\n\n" + continuationFactsHeading + "\n" + factBlock
         }
         let bounded = String(prefix.suffix(continuationPrefixChars))
         let (body, leading) = ContinuationPrompt.healed(neutralizingControlMarkers(bounded))
-        return ContinuationPrompt(text: head + body, requiredLeading: leading)
+        if TextKind.looksLikeCode(prefix) {
+            return ContinuationPrompt(text: body, requiredLeading: leading)
+        }
+        let turns = "<|turn>user\n\(neutralizingControlMarkers(task))<turn|>\n<|turn>model\n"
+        return ContinuationPrompt(text: turns + body, requiredLeading: leading)
     }
 
     /// Break model control markers that appear in document text (`<|turn>`,
@@ -166,6 +175,53 @@ public enum AutocompletePrompt {
         return text
             .replacingOccurrences(of: "<|", with: "< |")
             .replacingOccurrences(of: "|>", with: "| >")
+    }
+}
+
+/// Tells code from prose by the shape of the text nearest the caret.
+public enum TextKind {
+    private static let codeShape = #"(?m)[{};]|=|->|\w\(|^(\t| {4})|^\s*(func|def|class|struct|import|package|const|let|var|fn|public|private|#|```)(\s|$)|</?\w+>"#
+
+    public static func looksLikeCode(_ text: String) -> Bool {
+        String(text.suffix(200)).range(of: codeShape, options: .regularExpression) != nil
+    }
+
+    /// At least four letters' worth of text before the caret. A CJK character
+    /// carries about two letters' worth.
+    public static func hasEnoughToContinue(_ text: String) -> Bool {
+        var weight = 0
+        for scalar in text.unicodeScalars where !scalar.properties.isWhitespace {
+            weight += scalar.properties.isIdeographic ? 2 : 1
+            if weight >= 4 { return true }
+        }
+        return false
+    }
+}
+
+/// Removes what an instruction-tuned model adds when it talks instead of writing.
+enum ModelTalk {
+    /// A fill-in slot, whole or still streaming: "[Your Name]", "[Option A]",
+    /// "[Topic]". Code like `[Int]` or `[String: Any]` does not match, and a
+    /// Markdown link is left alone.
+    private static let placeholder = #"\[[A-Z][A-Za-z'/]*( [A-Za-z'/]+)+\](?!\()|\[(Topic|Name|Date|Time|Company|Link)\](?!\()|\[[A-Z][A-Za-z'/]* [A-Za-z'/ ]*$"#
+    private static let offerOfOptions = #"(?i)(here are|a few) (a few |some )?options|depending on the context"#
+
+    static func removed(from text: String) -> String {
+        guard text.contains("[") || text.range(of: offerOfOptions, options: .regularExpression) != nil else { return text }
+        if text.range(of: offerOfOptions, options: .regularExpression) != nil { return "" }
+        guard let slot = text.range(of: placeholder, options: .regularExpression) else { return text }
+        let before = text[..<slot.lowerBound]
+        return String(before.reversed().drop(while: \.isWhitespace).reversed())
+    }
+}
+
+/// Decides when the author's own facts belong in a prompt.
+public enum AuthorFacts {
+    /// Text that ends where a name, address, employer or place comes next.
+    private static let callsForFacts = #"(?i)(my name is|this is|e-?mail( address)?( is)?( at)?|reach me( at)?|contact me( at)?|i work (at|for)|i'?m with|i am with|based in|i'?m the\b.*|i am the\b.*|my (role|title|company)( is)?|regards,?|sincerely,?|best,?|cheers,?|yours,?|我叫|我是|邮箱(是)?|我在)\s*$"#
+
+    public static func areCalledFor(afterText text: String) -> Bool {
+        String(text.suffix(60)).range(of: callsForFacts, options: .regularExpression) != nil
     }
 }
 

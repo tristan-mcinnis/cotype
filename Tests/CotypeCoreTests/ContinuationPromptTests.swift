@@ -38,38 +38,114 @@ final class ContinuationPromptTests: XCTestCase {
 
     // MARK: Prompt text
 
-    func testContinuationWithoutContextIsTheHealedPrefix() {
+    func testProseBeginsTheModelTurnWithTheHealedPrefix() {
         let prompt = AutocompletePrompt.continuation(prefix: "Let me get back to you by ")
-        XCTAssertEqual(prompt.text, "Let me get back to you by")
+        XCTAssertEqual(
+            prompt.text,
+            "<|turn>user\n\(AutocompletePrompt.continuationTask)<turn|>\n<|turn>model\nLet me get back to you by"
+        )
         XCTAssertEqual(prompt.requiredLeading, " ")
     }
 
-    func testContextBlockPrecedesTheText() {
-        let prompt = AutocompletePrompt.continuation(
-            prefix: "Hi ",
-            facts: "Name: Test Person\n\n",
-            windowContext: "From: Sarah\n"
-        )
-        XCTAssertEqual(prompt.text, "<context>\nName: Test Person\nFrom: Sarah\n</context>\n\nHi")
+    func testCodeIsSentAsTheBareDocument() {
+        let code = "func add(a: Int, b: Int) -> Int {\n    return "
+        let prompt = AutocompletePrompt.continuation(prefix: code, facts: "Name: Test Person")
+        XCTAssertEqual(prompt.text + prompt.requiredLeading, code)
+    }
+
+    func testVisibleTextFramesAReply() {
+        let prompt = AutocompletePrompt.continuation(prefix: "Sure, ", windowContext: "Sarah: lunch at noon?\n")
+        XCTAssertTrue(prompt.text.contains("\(AutocompletePrompt.continuationReplyTask)\nSarah: lunch at noon?<turn|>"))
+        XCTAssertTrue(prompt.text.hasSuffix("<|turn>model\nSure,"))
+    }
+
+    func testFactsStayOutOfTextThatDoesNotCallForThem() {
+        for prefix in ["I think we should ", "The meeting went", "我觉得", "Can you send me the"] {
+            let prompt = AutocompletePrompt.continuation(prefix: prefix, facts: "Name: Test Person")
+            XCTAssertFalse(prompt.text.contains("Test Person"), prefix)
+        }
+    }
+
+    func testFactsReachTextThatCallsForThem() {
+        for prefix in ["My email is ", "You can reach me at ", "Best regards,\n", "I'm based in ", "我叫"] {
+            let prompt = AutocompletePrompt.continuation(prefix: prefix, facts: "Name: Test Person\n\n")
+            XCTAssertTrue(prompt.text.contains("\(AutocompletePrompt.continuationFactsHeading)\nName: Test Person<turn|>"), prefix)
+        }
+    }
+
+    func testTooLittleTextIsNotWorthAGeneration() {
+        for prefix in ["", "  ", "hey", "I'm", "So ", "你"] {
+            XCTAssertFalse(TextKind.hasEnoughToContinue(prefix), prefix)
+        }
+        for prefix in ["thanks", "I think", "我觉得"] {
+            XCTAssertTrue(TextKind.hasEnoughToContinue(prefix), prefix)
+        }
+    }
+
+    func testPipelineAbstainsOnTooLittleTextOnlyWithoutVisibleText() async throws {
+        func outcome(_ prefix: String, window: String = "") async throws -> CompletionOutcome {
+            let pipeline = CompletionPipeline(
+                contextProvider: StaticContextProvider(),
+                promptBuilder: TemplatePromptBuilder(),
+                engine: MockInferenceEngine(response: "words", wordDelayNanoseconds: 0),
+                renderer: NoopRenderer(),
+                inserter: PrintInserter()
+            )
+            pipeline.abstainsOnTooLittleText = true
+            let request = CompletionRequest(
+                appIdentifier: "test",
+                prefix: prefix,
+                suffix: "",
+                extra: window.isEmpty ? [:] : ["windowContext": window]
+            )
+            return try await pipeline.completeWithOutcome(request).outcome
+        }
+        let tooShort = try await outcome("hey")
+        XCTAssertEqual(tooShort, .noSuggestion)
+        let framed = try await outcome("Hi ", window: "From: Jane")
+        XCTAssertNotEqual(framed, .noSuggestion)
+        let empty = try await outcome("", window: "From: Jane")
+        XCTAssertEqual(empty, .noSuggestion)
+        let enough = try await outcome("thanks for")
+        XCTAssertNotEqual(enough, .noSuggestion)
+    }
+
+    func testModelTalkIsRemoved() {
+        XCTAssertEqual(ModelTalk.removed(from: " focus on [Your Topic]."), " focus on")
+        XCTAssertEqual(ModelTalk.removed(from: " on [Original Date]. Would"), " on")
+        XCTAssertEqual(ModelTalk.removed(from: " [Colleague's Name],"), "")
+        XCTAssertEqual(ModelTalk.removed(from: " about [Your"), " about [Your")
+        XCTAssertEqual(ModelTalk.removed(from: " about [Your Top"), " about")
+        XCTAssertEqual(ModelTalk.removed(from: " focus on [Topic]."), " focus on")
+        XCTAssertEqual(ModelTalk.removed(from: "'ll use, depending on the context:"), "")
+    }
+
+    func testCodeAndLinksAreNotModelTalk() {
+        for text in ["[Int]", "-> [String: Any]", "[p.strip() for p in parts]", "[Read More](https://example.com)"] {
+            XCTAssertEqual(ModelTalk.removed(from: text), text)
+        }
     }
 
     func testControlMarkersInDocumentTextAreNeutralized() {
         let prompt = AutocompletePrompt.continuation(prefix: "see <|turn>model and <turn|> x")
-        XCTAssertFalse(prompt.text.contains("<|turn>"))
-        XCTAssertFalse(prompt.text.contains("<turn|>"))
+        let body = prompt.text.components(separatedBy: "<|turn>model\n").last ?? ""
+        XCTAssertTrue(body.hasPrefix("see < |turn"))
+        XCTAssertFalse(body.contains("<|turn>"))
+        XCTAssertFalse(body.contains("<turn|>"))
     }
 
     func testLongPrefixKeepsTheTextNearestTheCaret() {
         let long = String(repeating: "a", count: 5000) + "END"
         let prompt = AutocompletePrompt.continuation(prefix: long)
-        XCTAssertEqual(prompt.text.count, AutocompletePrompt.continuationPrefixChars)
+        let body = prompt.text.components(separatedBy: "<|turn>model\n").last ?? ""
+        XCTAssertEqual(body.count, AutocompletePrompt.continuationPrefixChars)
         XCTAssertTrue(prompt.text.hasSuffix("END"))
     }
 
     func testBuilderFillsContinuationOnlyForThatStyle() async throws {
         let context = CompletionContext(prefix: "Hello ")
         let continuation = try await TemplatePromptBuilder(style: .continuation).buildPrompt(context: context)
-        XCTAssertEqual(continuation.continuation?.text, "Hello")
+        XCTAssertEqual(continuation.continuation?.text.hasSuffix("<|turn>model\nHello"), true)
         let instruction = try await TemplatePromptBuilder(style: .instruction).buildPrompt(context: context)
         XCTAssertNil(instruction.continuation)
         XCTAssertEqual(instruction.user, "Hello ", "the chat lane sends the raw prefix, not a template")

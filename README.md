@@ -84,14 +84,14 @@ permission state.
 - Use the Cotype menu-bar icon to trigger or cancel a completion and open
   Settings. Use the Local Models menu-bar icon to load or unload `gemma-it`.
 
-Inference streams from the shared model. The default prompt is plain-text
-continuation (`/v1/completions`): Cotype sends the text before the caret plus a
-short context block with your facts and, if you turn it on, visible window text,
-and the model keeps writing it, stopping at the end of the line or sentence. An
-untouched install sends exactly the text before the caret. Raw writing notes and
-learned `input → output` examples are deliberately not sent in this lane: the
-model continues them as prose (measured: the example arrows leaked into
-completions). A trailing space
+Inference streams from the shared model. The default prompt (`/v1/completions`)
+gives the model a short task, "write an ordinary message" or, when window text is
+on, "write a reply to" that text, then begins its turn with the text before the
+caret so it keeps writing, stopping at the end of the line or sentence. Your facts
+are added only when the text calls for them ("My email is", "Best regards,"). Code
+goes as the bare document. Very short text with nothing on screen gets no
+suggestion. Writing notes and learned examples are not sent in this lane yet.
+A trailing space
 is token-healed so the model never starts from a lone space token. If
 `gemma-it` is cold, Cotype asks Local Models to load it (non-blocking) and says
 so; while you type it refreshes the daemon's idle clock every 10 minutes so

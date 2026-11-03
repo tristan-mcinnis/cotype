@@ -11,6 +11,7 @@ final class PromptDeliveryTests: XCTestCase {
     private let prefix = "Thanks for the update — I will "
 
     private func prompt(
+        prefix customPrefix: String? = nil,
         style: PromptStyle = .continuation,
         systemPrompt: String = AutocompletePrompt.defaultSystem,
         facts: String = "",
@@ -34,7 +35,7 @@ final class PromptDeliveryTests: XCTestCase {
         var extra: [String: String] = [:]
         if !windowContext.isEmpty { extra["windowContext"] = windowContext }
         return try await builder.buildPrompt(
-            context: CompletionContext(prefix: prefix, extra: extra)
+            context: CompletionContext(prefix: customPrefix ?? prefix, extra: extra)
         )
     }
 
@@ -62,16 +63,22 @@ final class PromptDeliveryTests: XCTestCase {
         let prompt = try await prompt()
         let continuation = try XCTUnwrap(prompt.continuation)
         // Token healing moves the caret's single trailing space into
-        // `requiredLeading`; combined they are exactly the typed text.
-        XCTAssertEqual(continuation.text + continuation.requiredLeading, prefix)
+        // `requiredLeading`; combined they end in exactly the typed text.
+        XCTAssertTrue((continuation.text + continuation.requiredLeading).hasSuffix("<|turn>model\n" + prefix))
         XCTAssertFalse(continuation.text.contains("<context>"))
         XCTAssertFalse(continuation.text.contains("You are an inline autocomplete engine"))
     }
 
     func testPersonalFactsReachTheContinuationRequest() async throws {
-        let prompt = try await prompt(facts: "Name: Sam Rivera\nEmail: sam@example.com")
+        let prompt = try await prompt(prefix: "My email is ", facts: "Name: Sam Rivera\nEmail: sam@example.com")
         let sent = try XCTUnwrap(prompt.continuation?.text)
         XCTAssertTrue(sent.contains("sam@example.com"))
+    }
+
+    func testPersonalFactsStayOutOfTextThatDoesNotCallForThem() async throws {
+        let prompt = try await prompt(facts: "Name: Sam Rivera\nEmail: sam@example.com")
+        let sent = try XCTUnwrap(prompt.continuation?.text)
+        XCTAssertFalse(sent.contains("Sam Rivera"))
     }
 
     /// Instructions would be continued as prose, not obeyed. They must not be in
@@ -153,29 +160,21 @@ final class PromptDeliveryTests: XCTestCase {
     func testLongWindowContextCannotEvictTheAuthorsFacts() async throws {
         let facts = String(repeating: "fact line\n", count: 80) // > 600 chars
         let window = String(repeating: "w", count: 5000)
-        let prompt = try await prompt(facts: facts, windowContext: window)
+        let prompt = try await prompt(prefix: "My email is ", facts: facts, windowContext: window)
         let sent = try XCTUnwrap(prompt.continuation?.text)
 
         XCTAssertTrue(sent.contains("fact line"), "facts are the first-priority block")
-        let factsPart = sent.components(separatedBy: "</context>").first ?? ""
-        XCTAssertLessThanOrEqual(
-            factsPart.count,
-            AutocompletePrompt.continuationContextChars + 64,
-            "the whole context block stays within the documented budget"
-        )
+        XCTAssertLessThanOrEqual(contextChars(sent), AutocompletePrompt.continuationContextChars)
         XCTAssertTrue(sent.contains("wwww"), "window context still contributes")
     }
 
     func testFactsAloneAreCappedAndWindowFillsTheRemainder() async throws {
         let facts = String(repeating: "a", count: 5000)
         let window = String(repeating: "b", count: 5000)
-        let prompt = try await prompt(facts: facts, windowContext: window)
+        let prompt = try await prompt(prefix: "My email is ", facts: facts, windowContext: window)
         let sent = try XCTUnwrap(prompt.continuation?.text)
-        let context = sent
-            .replacingOccurrences(of: "<context>\n", with: "")
-            .components(separatedBy: "\n</context>").first ?? ""
-        XCTAssertLessThanOrEqual(context.count, AutocompletePrompt.continuationContextChars)
-        XCTAssertGreaterThan(context.count, AutocompletePrompt.continuationFactsChars,
+        XCTAssertLessThanOrEqual(contextChars(sent), AutocompletePrompt.continuationContextChars)
+        XCTAssertGreaterThan(contextChars(sent), AutocompletePrompt.continuationFactsChars,
                              "the window uses the remaining budget instead of being dropped")
     }
 
@@ -183,11 +182,17 @@ final class PromptDeliveryTests: XCTestCase {
         let window = String(repeating: "z", count: 5000)
         let prompt = try await prompt(windowContext: window)
         let sent = try XCTUnwrap(prompt.continuation?.text)
-        let context = sent
-            .replacingOccurrences(of: "<context>\n", with: "")
-            .components(separatedBy: "\n</context>").first ?? ""
-        XCTAssertLessThanOrEqual(context.count, AutocompletePrompt.continuationContextChars)
-        XCTAssertGreaterThan(context.count, AutocompletePrompt.continuationFactsChars)
+        XCTAssertEqual(contextChars(sent), AutocompletePrompt.continuationContextChars)
+    }
+
+    /// Characters of facts and window text in the task turn, headings excluded.
+    private func contextChars(_ sent: String) -> Int {
+        let task = sent.components(separatedBy: "<turn|>").first ?? ""
+        return task
+            .replacingOccurrences(of: "<|turn>user\n", with: "")
+            .replacingOccurrences(of: AutocompletePrompt.continuationReplyTask + "\n", with: "")
+            .replacingOccurrences(of: "\n\n" + AutocompletePrompt.continuationFactsHeading + "\n", with: "")
+            .count
     }
 
     // MARK: Transmission budget

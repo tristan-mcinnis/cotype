@@ -272,8 +272,9 @@ public final class LlamaCppEngine: InferenceEngine {
     /// token-healed first step (see `ContinuationPrompt`). Caller holds the
     /// lifecycle lock and has cleared the KV cache.
     private func continueText(_ prompt: ContinuationPrompt, inputLimit: Int, onToken: (String) -> Void) throws {
-        // Document text is data: never parse it into control tokens.
-        var tokens = try tokenize(prompt.text, parseSpecial: false)
+        // The turn markers are the prompt's structure. The builder has already
+        // neutralized any that appear in document text.
+        var tokens = try tokenize(prompt.text, parseSpecial: true)
         guard !tokens.isEmpty else { return }
         if tokens.count > inputLimit {
             // Keep BOS and the text nearest the caret.

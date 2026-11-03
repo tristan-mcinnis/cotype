@@ -20,6 +20,8 @@ public final class CompletionPipeline {
 
     /// Word cap on a suggestion (see `SuggestionLength`).
     public var maxWords = 4
+    /// Skip the generation when too little text precedes the caret.
+    public var abstainsOnTooLittleText = false
 
     /// Observability stream. Subscribe to inspect or tee the loop.
     public let events = PassthroughSubject<PipelineEvent, Never>()
@@ -74,6 +76,21 @@ public final class CompletionPipeline {
             lastOutcome = .noSuggestion
             lastTimings = PipelineTimings()
             emit(.inference, "abstained (caret inside a word)", "")
+            return ("", "", .noSuggestion, PipelineTimings())
+        }
+
+        // A word or two gives the model nothing to go on, so it invents a topic.
+        // Visible text can stand in for it: "Hi " above a mail from Jane is enough.
+        let hasWindowText = !(context.extra["windowContext"] ?? "").isEmpty
+        if abstainsOnTooLittleText,
+           !TextKind.hasEnoughToContinue(context.prefix),
+           !(hasWindowText && !context.prefix.isEmpty) {
+            CotypeLog.loop.debug("abstain: too little text before the caret")
+            lastRunAbstained = true
+            renderer.clear()
+            lastOutcome = .noSuggestion
+            lastTimings = PipelineTimings()
+            emit(.inference, "abstained (too little text)", "")
             return ("", "", .noSuggestion, PipelineTimings())
         }
 
@@ -172,11 +189,11 @@ public final class CompletionPipeline {
         return (candidate, buffer, outcome, timings)
     }
 
-    /// The last shaping steps shared by streamed and final candidates: stay in
-    /// the current sentence, then apply the word cap.
+    /// The last shaping steps shared by streamed and final candidates: drop the
+    /// model's own talk, stay in the current sentence, then apply the word cap.
     static func finalize(_ joined: String, prefix: String, maxWords: Int) -> String {
         SuggestionWordLimiter.limit(
-            CaretBoundary.limitToSentence(prefix: prefix, candidate: joined),
+            CaretBoundary.limitToSentence(prefix: prefix, candidate: ModelTalk.removed(from: joined)),
             maxWords: maxWords
         )
     }

@@ -16,6 +16,7 @@ import CotypeMacOS
 //   --model <path>       GGUF path (llama only; defaults to the Cotype Models dir)
 //   --max-tokens <n>     cap generated tokens (llama only, default 128)
 //   --limit <n>          run only the first n cases (smoke testing)
+//   --set prose          run the everyday-writing set, with synthetic author facts
 //   --json               also emit machine-readable results (stdout)
 //   --min-valid-rate <x> gate: minimum valid fraction (default 0.90)
 //   --max-forbidden <n>  gate: max forbidden-output cases (default 0)
@@ -174,7 +175,7 @@ var cases = hasFlag("--window-context-set")
         ? SeededEvalSet.postCursorCases
         : adherenceSet
             ? SeededEvalSet.adherenceCases
-            : SeededEvalSet.cases
+            : (flagValue("--set") == "prose" ? ProseEvalSet.cases : SeededEvalSet.cases)
 if limit > 0 { cases = Array(cases.prefix(limit)) }
 let results = await EvalRunner.run(
     cases: cases,
@@ -182,7 +183,8 @@ let results = await EvalRunner.run(
     customInstruction: systemPrompt,
     style: promptStyle,
     length: evalLength,
-    examples: evalExamples
+    examples: evalExamples,
+    personalFacts: flagValue("--set") == "prose" ? ProseEvalSet.facts : ""
 )
 let summary = EvalSummary(results: results)
 
