@@ -56,6 +56,19 @@ public enum ProseEvalSet {
         )
     }
 
+    /// A long, loose chat draft, with a busy window above it.
+    private static func draft(_ tail: String) -> EvalCase {
+        let earlier = "yeah i looked through it and most of it seems right to me, the numbers line up with what we saw last week. "
+        return EvalCase(
+            id: "draft-\(tail.suffix(20))",
+            prefix: String(repeating: earlier, count: 7) + tail,
+            extra: ["windowContext": "New\nSearch\nMore\nProject notes\nThe word limit is 4 and the task is finished. Let me know what you think about the results.\nAuto\n"],
+            expected: "any",
+            forbiddenSubstrings: authorDetails + assistantTalk,
+            rubricTags: ["prose", "draft"]
+        )
+    }
+
     public static let cases: [EvalCase] = [
         unrelated("thanks for"), unrelated("The meeting"), unrelated("The meeting went"),
         unrelated("I think we should"), unrelated("Can you send me"), unrelated("hey, are you"),
@@ -76,6 +89,15 @@ public enum ProseEvalSet {
         callsForFacts("My name is ", "Alex Morgan"),
         callsForFacts("I work at ", "Northbay Research"),
         callsForFacts("I'm based in ", "Lisbon"),
+
+        draft("hmm ok so the speed is pretty slow. i need a quick"),
+        draft("hmm ok so the speed is pretty slow. i just felt like the learning curve in"),
+        draft("hmm ok so the speed is pretty slow.\n\nlets not go to"),
+        draft("hmm ok so the speed is pretty slow.\n\nfor example it says"),
+        draft("hmm ok so the speed is pretty slow.\n\nso i thin"),
+        draft("hmm ok so the speed is pretty slow.\n\nthats super not related to"),
+        draft("hmm ok so the speed is pretty slow.\n\nplease push it and then"),
+        draft("hmm ok so the speed is pretty slow.\n\nwhat do you think about "),
 
         reply("Anna: can we move the Thursday call to 3pm?", "Sure, ", "that works for me"),
         reply("Ben: did you get the budget numbers for Q3?", "Yes, ", "I got them"),

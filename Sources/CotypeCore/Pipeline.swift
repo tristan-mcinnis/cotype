@@ -70,7 +70,7 @@ public final class CompletionPipeline {
         // The caret is inside a word the suffix already finishes: abstain
         // without spending a generation.
         if CaretBoundary.isInsideWord(prefix: context.prefix, suffix: context.suffix) {
-            CotypeLog.loop.debug("abstain: caret inside a word")
+            CotypeLog.loop.info("abstain: caret inside a word, \(context.suffix.utf16.count, privacy: .public) chars after it in \(context.appIdentifier, privacy: .public)")
             lastRunAbstained = true
             renderer.clear()
             lastOutcome = .noSuggestion
