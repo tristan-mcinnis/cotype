@@ -16,6 +16,16 @@ public enum WritingMemory {
     static let readChars = 1000
     /// Oldest writing is dropped past this, keeping the file and each scan small.
     public static let maxKept = 400
+    /// Apps whose fields can hold what other people said on a call. It is not the
+    /// author's writing, and it must not surface in a later message.
+    static let meetingApps = [
+        "us.zoom.", "com.tristan.rti", "com.microsoft.teams", "com.tencent.meeting",
+        "com.cisco.webex", "com.google.meet",
+    ]
+
+    public static func learnsFrom(appIdentifier: String) -> Bool {
+        !meetingApps.contains { appIdentifier.hasPrefix($0) }
+    }
 
     /// The sentences in `prefix` worth keeping. The sentence still being typed
     /// counts once it has enough words, less its last word, which may be partial.
@@ -73,7 +83,8 @@ public enum WritingMemory {
         var seen = Set<String>()
         var ranked: [(text: String, score: Int)] = []
         for sample in samples {
-            guard let text = text(of: sample), isWorthKeeping(text),
+            guard learnsFrom(appIdentifier: sample.appIdentifier),
+                  let text = text(of: sample), isWorthKeeping(text),
                   CaretBoundary.isSpacedScript(text) != wantsUnspaced,
                   !prefix.contains(text),
                   seen.insert(text.lowercased()).inserted

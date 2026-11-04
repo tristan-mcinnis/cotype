@@ -42,6 +42,15 @@ final class WritingMemoryTests: XCTestCase {
         XCTAssertEqual(store.samples().map(\.prefix), ["so i think we should go and check it"])
     }
 
+    func testMeetingAppsAreNeitherKeptNorShown() {
+        let store = store()
+        store.recordWriting(fromPrefix: "so i think we should go ", appIdentifier: "us.zoom.xos")
+        store.recordWriting(fromPrefix: "so i think we should go ", appIdentifier: "com.tristan.rti.personal")
+        XCTAssertEqual(store.count, 0)
+        let earlier = written("what they said on the call today", app: "us.zoom.xos")
+        XCTAssertEqual(WritingMemory.examples(from: [earlier], prefix: "hello there friend", appIdentifier: "mail"), [])
+    }
+
     func testWritingIsNotKeptWhenRetentionIsOff() {
         let store = store()
         store.setRetentionPolicy(.off)

@@ -448,6 +448,7 @@ public final class PersonalizationStore: @unchecked Sendable {
     /// that grew replaces its shorter self, so a message typed word by word
     /// leaves one record. Dropped entirely when retention is `.off`.
     public func recordWriting(fromPrefix prefix: String, appIdentifier: String) {
+        guard WritingMemory.learnsFrom(appIdentifier: appIdentifier) else { return }
         let pieces = WritingMemory.pieces(of: prefix)
         guard !pieces.isEmpty else { return }
         queue.sync {
