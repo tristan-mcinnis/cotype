@@ -16,7 +16,7 @@ in memory unless the legacy in-process fallback is installed on purpose.
 The product name is always **Cotype** in user-facing copy. Technical identifiers:
 
 - Swift package: `Cotype`; libraries `CotypeCore`, `CotypeUpdateCore`, `CotypeEval`, `CotypeMacOS`
-- Executables: `cotype`, `cotype-menu`, `cotype-eval`, `cotype-diagnostics`, `cotype-update`
+- Executables: `cotype-menu`, `cotype-eval`, `cotype-diagnostics`, `cotype-update`
 - Installed app: `~/Applications/Cotype.app` (built by `scripts/install.sh`)
 
 ## Rules

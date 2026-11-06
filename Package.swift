@@ -9,7 +9,6 @@ let package = Package(
         .library(name: "CotypeUpdateCore", targets: ["CotypeUpdateCore"]),
         .library(name: "CotypeEval", targets: ["CotypeEval"]),
         .library(name: "CotypeMacOS", targets: ["CotypeMacOS"]),
-        .executable(name: "cotype", targets: ["CotypeApp"]),
         .executable(name: "cotype-eval", targets: ["CotypeEvalApp"]),
         .executable(name: "cotype-menu", targets: ["CotypeMenuApp"]),
         .executable(name: "cotype-diagnostics", targets: ["CotypeDiagnostics"]),
@@ -31,7 +30,6 @@ let package = Package(
         .target(name: "CotypeEval", dependencies: ["CotypeCore"]),
         .target(name: "CotypeMacOS", dependencies: ["CotypeCore", .product(name: "HouseDesign", package: "design-system")]),
         .executableTarget(name: "CotypeUpdate", dependencies: ["CotypeUpdateCore"]),
-        .executableTarget(name: "CotypeApp", dependencies: ["CotypeCore"]),
         .executableTarget(name: "CotypeEvalApp", dependencies: ["CotypeEval", "CotypeMacOS"]),
         .executableTarget(name: "CotypeMenuApp", dependencies: [
             "CotypeCore",
