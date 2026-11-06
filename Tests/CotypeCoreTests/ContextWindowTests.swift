@@ -10,7 +10,7 @@ final class ContextWindowTests: XCTestCase {
     func testKeepsNearestCaretTail() {
         let prefix = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         let window = ContextWindow.nearestCaret(prefix: prefix, maxChars: 10)
-        XCTAssertEqual(window, "QRSTUVWXYZ", "the trailing 10 chars nearest the caret must be kept")
+        XCTAssertEqual(window, "UVWXYZ", "the tail nearest the caret, cut at a stepped start, must be kept")
     }
 
     func testShortPrefixUnchanged() {

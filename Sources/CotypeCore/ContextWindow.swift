@@ -10,14 +10,14 @@ import Foundation
 /// head, so the prompt always reflects the text nearest the insertion point.
 public enum ContextWindow {
 
-    /// Returns the trailing `maxChars` characters of `prefix` — the text nearest
-    /// the caret (the end of the prefix). A prefix no longer than `maxChars` is
-    /// returned unchanged. `maxChars <= 0` yields an empty string.
+    /// Returns the tail of `prefix` nearest the caret: `maxChars / 2` to `maxChars`
+    /// characters, with a start that moves in steps of `maxChars / 2`, not per
+    /// keystroke, so llama-server's prompt cache keeps matching while typing.
     public static func nearestCaret(prefix: String, maxChars: Int) -> String {
         guard maxChars > 0, !prefix.isEmpty else { return "" }
         guard prefix.count > maxChars else { return prefix }
-        // Always keep a whole trailing window; drop the leading document text.
-        return String(prefix.suffix(maxChars))
+        let step = max(1, maxChars / 2)
+        return String(prefix.dropFirst((prefix.count - step) / step * step))
     }
 
     /// Returns the leading `maxChars` characters of `suffix` — the text nearest
