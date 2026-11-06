@@ -494,6 +494,7 @@ public final class CompletionController: ObservableObject {
         )
         pipeline.wordChecker = { SpellCheckWords.shared.isWord($0) }
         pipeline.maxWords = length.maxWords
+        pipeline.allowsEmoji = EmojiFilter.allowsEmoji(userDefaults)
         pipeline.abstainsOnTooLittleText = contextProviderOverride == nil && pipelineEngineOverride == nil
 
         let cancellable = pipeline.events.sink { [weak self] event in

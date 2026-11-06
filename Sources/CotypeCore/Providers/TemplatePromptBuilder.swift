@@ -185,7 +185,10 @@ public enum AutocompletePrompt {
 
 /// Tells code from prose by the shape of the text nearest the caret.
 public enum TextKind {
-    private static let codeShape = CompiledPattern(#"(?m)[{};]|=|->|\w\(|^(\t| {4})|^\s*(func|def|class|struct|import|package|const|let|var|fn|public|private|#|```)(\s|$)|</?\w+>"#)
+    /// Each alternative needs code around it, not one character that prose also
+    /// uses: "I went home; she stayed", "plan -> deck" and "8 = 24 people" are
+    /// prose, and so is "let me know" at the start of a line.
+    private static let codeShape = CompiledPattern(#"(?m)[{}]|;\s*$|==|!=|=>|:=|[+\-*/]=|\)\s*->|\w\(|^(\t| {4})\S|^\s*(let|var|const)\s+\w+\s*[:=]|^\s*(func|def|fn|class|struct|enum|interface)\s+\w+\s*[(:{<]|^\s*(import|package|from)\s+[\w.]+\s*;?$|^\s*(public|private|export)\s+(func|class|struct|var|let|static|const|function|def)\b|^\s*#(include|import|define|!)|^\s*```|</?\w+>"#)
 
     public static func looksLikeCode(_ text: String) -> Bool {
         codeShape.matches(String(text.suffix(200)))
@@ -207,9 +210,12 @@ public enum TextKind {
 enum ModelTalk {
     /// A fill-in slot, whole or still streaming: "[Your Name]", "[Option A]",
     /// "[Topic]". Code like `[Int]` or `[String: Any]` does not match, and a
-    /// Markdown link is left alone.
-    private static let placeholder = CompiledPattern(#"\[[A-Za-z][A-Za-z'/]*( [A-Za-z'/]+)+\](?!\()|\[(Topic|Name|Date|Time|Company|Link)\](?!\()|\[[A-Z][A-Za-z'/]* [A-Za-z'/ ]*$"#)
-    private static let offerOfOptions = CompiledPattern(#"(?i)(here are|a few) (a few |some )?options|depending on the context"#)
+    /// Markdown link is left alone. A slot still open at the end is held back
+    /// whatever its case, so a streaming link does not show and then vanish.
+    private static let placeholder = CompiledPattern(#"\[[A-Za-z][A-Za-z'/]*( [A-Za-z'/]+)+\](?!\()|\[(Topic|Name|Date|Time|Company|Link)\](?!\()|\[[A-Za-z][A-Za-z'/]* [A-Za-z'/ ]*$"#)
+    /// The model offering choices instead of writing. "depending on the context"
+    /// counts only as the lead-in to a list, so the phrase in a sentence stays.
+    private static let offerOfOptions = CompiledPattern(#"(?i)(here are|a few) (a few |some )?options|depending on the context\s*:"#)
 
     static func removed(from text: String) -> String {
         if offerOfOptions.matches(text) { return "" }
@@ -221,8 +227,11 @@ enum ModelTalk {
 
 /// Decides when the author's own facts belong in a prompt.
 public enum AuthorFacts {
-    /// Text that ends where a name, address, employer or place comes next.
-    private static let callsForFacts = CompiledPattern(#"(?i)(my name is|this is|e-?mail( address)?( is)?( at)?|reach me( at)?|contact me( at)?|i work (at|for)|i'?m with|i am with|based in|i'?m the\b.*|i am the\b.*|my (role|title|company)( is)?|regards,?|sincerely,?|best,?|cheers,?|yours,?|我叫|我是|邮箱(是)?|我在)\s*$"#)
+    /// Text that ends where a name, address, employer or place comes next. A
+    /// sign-off counts only on its own line ("Best," not "the best"), "I'm the"
+    /// only before a title ("I'm the Managing Partner", not "I'm the one who"),
+    /// and both apostrophes count, since macOS often types a curly one.
+    private static let callsForFacts = CompiledPattern(#"(?im)(my name is|(^|[,.!]\s*)this is|e-?mail( address)?( is)?( at)?|reach me( at)?|contact me( at)?|i work (at|for)|i['’]?m with|i am with|based in|(i['’]?m|i am) the(?-i:( [A-Z][\w-]*){0,3})( at)?|my (role|title|company)( is)?|^\s*(best( regards| wishes)?|kind regards|warm regards|regards|sincerely|cheers|yours( truly| sincerely)?)[,!]?|我叫|我是|邮箱(是)?|我在)\s*\z"#)
 
     public static func areCalledFor(afterText text: String) -> Bool {
         callsForFacts.matches(String(text.suffix(60)))

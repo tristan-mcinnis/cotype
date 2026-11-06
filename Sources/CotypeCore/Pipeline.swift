@@ -22,6 +22,9 @@ public final class CompletionPipeline {
     public var maxWords = 4
     /// Skip the generation when too little text precedes the caret.
     public var abstainsOnTooLittleText = false
+    /// Keep emoji in suggestions (see `EmojiFilter`). Off, a suggestion ends
+    /// before its first emoji.
+    public var allowsEmoji = false
 
     /// Observability stream. Subscribe to inspect or tee the loop.
     public let events = PassthroughSubject<PipelineEvent, Never>()
@@ -138,11 +141,11 @@ public final class CompletionPipeline {
                         prefix: context.prefix, candidate: processed.text, isWord: wordChecker,
                         modelSawBoundary: modelSawBoundary
                     )
-                    renderer.present(Self.finalize(joined, prefix: context.prefix, maxWords: maxWords), for: request)
+                    renderer.present(Self.finalize(joined, prefix: context.prefix, maxWords: maxWords, allowsEmoji: allowsEmoji), for: request)
                     // Stop as soon as more text cannot change the candidate:
                     // the Tab window opens at the end of the stream, and the
                     // tokens after the cap were only thrown away.
-                    if Self.isFixed(joined, prefix: context.prefix, maxWords: maxWords),
+                    if Self.isFixed(joined, prefix: context.prefix, maxWords: maxWords, allowsEmoji: allowsEmoji),
                        sanitizer.isSettled(buffer, promptTail: context.prefix) {
                         timings.stoppedEarly = true
                         break generation
@@ -168,7 +171,8 @@ public final class CompletionPipeline {
                 modelSawBoundary: modelSawBoundary
             ),
             prefix: context.prefix,
-            maxWords: maxWords
+            maxWords: maxWords,
+            allowsEmoji: allowsEmoji
         )
         let isNoSuggestion = sanitized.isNoSuggestion || candidate.isEmpty
         let outcome: CompletionOutcome = isNoSuggestion ? .noSuggestion : .suggestion(candidate)
@@ -189,19 +193,24 @@ public final class CompletionPipeline {
     }
 
     /// The last shaping steps shared by streamed and final candidates: drop the
-    /// model's own talk, stay in the current sentence, then apply the word cap.
-    static func finalize(_ joined: String, prefix: String, maxWords: Int) -> String {
-        SuggestionWordLimiter.limit(
-            CaretBoundary.limitToSentence(prefix: prefix, candidate: ModelTalk.removed(from: joined)),
+    /// model's own talk, end before an emoji unless they are on, stay in the
+    /// current sentence, then apply the word cap.
+    static func finalize(_ joined: String, prefix: String, maxWords: Int, allowsEmoji: Bool = true) -> String {
+        let spoken = ModelTalk.removed(from: joined)
+        let shown = allowsEmoji ? spoken : EmojiFilter.cutAtFirstEmoji(spoken)
+        return SuggestionWordLimiter.limit(
+            CaretBoundary.limitToSentence(prefix: prefix, candidate: shown),
             maxWords: maxWords
         )
     }
 
     /// True when later text cannot change `finalize(joined)`: the sentence
-    /// already ended inside the candidate, or a word past the cap has begun.
+    /// already ended inside the candidate, a word past the cap has begun, or an
+    /// emoji the filter ends on has arrived.
     /// Callers must also check `OutputSanitizer.isSettled`, which covers the
     /// sanitizer rules that look at the whole output.
-    static func isFixed(_ joined: String, prefix: String, maxWords: Int) -> Bool {
+    static func isFixed(_ joined: String, prefix: String, maxWords: Int, allowsEmoji: Bool = true) -> Bool {
+        if !allowsEmoji, EmojiFilter.cutAtFirstEmoji(joined).count < joined.count { return true }
         let sentence = CaretBoundary.limitToSentence(prefix: prefix, candidate: joined)
         guard !sentence.isEmpty else { return false }
         return sentence.count < joined.count

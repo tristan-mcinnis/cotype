@@ -24,6 +24,7 @@ struct GeneralPane: View {
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
     @AppStorage(CompletionController.autoSuggestKey) private var autoSuggest = true
     @AppStorage(SuggestionLength.defaultsKey) private var suggestionLength = SuggestionLength.default.rawValue
+    @AppStorage(EmojiFilter.defaultsKey) private var allowEmoji = false
     @AppStorage(AppearancePreference.key) private var appearance = AppearancePreference.dark.rawValue
     @StateObject private var launchModel = LaunchAtLoginModel()
     @EnvironmentObject private var reset: SettingsResetCoordinator
@@ -51,6 +52,13 @@ struct GeneralPane: View {
                     detail: "Off: suggestions appear only on the trigger shortcut."
                 ) {
                     InkSwitch(isOn: $autoSuggest)
+                }
+                SlateDivider()
+                SlateRow(
+                    title: "Suggest emoji",
+                    detail: "Off: a suggestion stops before an emoji."
+                ) {
+                    InkSwitch(isOn: $allowEmoji)
                 }
             }
 
@@ -191,6 +199,7 @@ struct GeneralPane: View {
                 promptStyle = PromptStyle.default.rawValue
                 pauseOnBattery = false
                 pauseInLowPowerMode = true
+                allowEmoji = false
                 appearance = AppearancePreference.dark.rawValue
                 AppearancePreference.applyCurrent()
             }
