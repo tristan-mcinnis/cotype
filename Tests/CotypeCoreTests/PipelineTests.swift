@@ -130,21 +130,6 @@ final class PipelineTests: XCTestCase {
         XCTAssertEqual(prompt.user, "selection=hello")
     }
 
-    func testDefaultPromptIncludesWindowContextAndCurrentFieldAsSeparateInputs() async throws {
-        let builder = TemplatePromptBuilder()
-        let prompt = try await builder.buildPrompt(context: CompletionContext(
-            prefix: "I think the key point is",
-            appIdentifier: "com.example.chat",
-            extra: ["windowContext": "Earlier message about keeping the scope narrow."]
-        ))
-
-        XCTAssertTrue(prompt.user.contains("<on_screen>"))
-        XCTAssertTrue(prompt.user.contains("Earlier message about keeping the scope narrow."))
-        XCTAssertTrue(prompt.user.hasSuffix("Output:"))
-        XCTAssertTrue(prompt.user.contains("I think the key point is"))
-        XCTAssertTrue(prompt.user.contains("Input: "))
-    }
-
     func testDefaultPromptStaysRawWhenWindowContextIsUnavailable() async throws {
         let prompt = try await TemplatePromptBuilder().buildPrompt(
             context: CompletionContext(prefix: "continue this")

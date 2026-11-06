@@ -314,20 +314,11 @@ public struct TemplatePromptBuilder: PromptBuilder {
     }
 
     public func buildPrompt(context: CompletionContext) async throws -> Prompt {
-        let user: String
-        if style == .continuation,
-           userTemplate == AutocompletePrompt.defaultUser || userTemplate == "{{prefix}}",
-           let windowContext = context.extra["windowContext"],
-           !windowContext.isEmpty {
-            user = Self.contextualUserText(prefix: context.prefix, windowContext: windowContext)
-        } else {
-            user = render(userTemplate, context: context)
-        }
+        let user = render(userTemplate, context: context)
         var system = render(systemTemplate, context: context)
-        // Learned examples belong to the system channel. The continuation lane
-        // never transmits `system` (it sends `continuation` only), so this cannot
-        // leak into a plain-text prompt; the instruction lane does send it.
-        if let summary = personalizationSummary?(), !summary.isEmpty {
+        // Learned examples belong to the system channel, which only the
+        // instruction lane sends; the continuation lane sends `continuation`.
+        if style == .instruction, let summary = personalizationSummary?(), !summary.isEmpty {
             system += "\n\n\(summary)"
         }
         let continuation: ContinuationPrompt? = style == .continuation
@@ -344,20 +335,6 @@ public struct TemplatePromptBuilder: PromptBuilder {
             suffix: context.suffix.isEmpty ? nil : context.suffix,
             continuation: continuation
         )
-    }
-
-    static func contextualUserText(prefix: String, windowContext: String) -> String {
-        """
-        <context>
-        <on_screen>
-        \(windowContext)
-        </on_screen>
-        </context>
-
-        Continue the author's unfinished text below. Do not reply to anything above. Prefer names, dates, and phrases from <on_screen> when they fit.
-        Input: \(prefix)
-        Output:
-        """
     }
 
     private func render(_ template: String, context: CompletionContext) -> String {

@@ -82,7 +82,7 @@ final class PersonalizationFewShotTests: XCTestCase {
 final class PersonalizationPromptTests: XCTestCase {
 
     func testInjectsSummaryWhenProviderReturnsContent() async throws {
-        var builder = TemplatePromptBuilder()
+        var builder = TemplatePromptBuilder(style: .instruction)
         builder.personalizationSummary = { "Examples of your accepted completions:\n- let x =  → 10" }
         let prompt = try await builder.buildPrompt(context: CompletionContext(prefix: "let x = "))
         XCTAssertTrue(prompt.system.contains("Examples of your accepted completions"))
