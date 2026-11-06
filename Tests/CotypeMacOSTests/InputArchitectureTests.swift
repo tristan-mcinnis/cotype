@@ -243,9 +243,9 @@ final class TypingObserverPlanTests: XCTestCase {
         }
     }
 
-    func testShiftTabIsNeverReported() {
-        // Shift+Tab is outdent/navigation, never an edit.
-        XCTAssertNil(observation(keyCode: 48, modifiers: KeyModifiers(shift: true)))
+    func testShiftTabIsReportedAsAnEdit() {
+        // Shift+Tab passes through as outdent, but the caret moved: clear the ghost.
+        XCTAssertEqual(observation(keyCode: 48, modifiers: KeyModifiers(shift: true)), .mutated)
     }
 
     func testEscapeIsNotADocumentMutation() {

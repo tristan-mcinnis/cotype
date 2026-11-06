@@ -343,6 +343,14 @@ public func classifyEditorObservation(
     modifiers: KeyModifiers,
     text: String
 ) -> EditObservation? {
+    // Editing and caret-move keys invalidate a stale ghost with any modifier held
+    // (Option+Backspace, Cmd+Left, Shift+Tab): the caret or text moved, and the
+    // key still reaches the app. Unmodified Tab here means no candidate was shown.
+    switch keyCode {
+    case 51, 117, 36, 76, 48: return .mutated   // Backspace, Forward Delete, Return, Enter, Tab
+    case 115, 119, 116, 121, 123, 124, 125, 126: return .mutated  // Home, End, Page, arrows
+    default: break
+    }
     // Mutating Command chords: observe (invalidate + re-debounce) but never block.
     if modifiers.command {
         // V = paste (9), X = cut (7), Z = undo/redo (6).
@@ -351,20 +359,6 @@ public func classifyEditorObservation(
     }
     // Control/Option chords are app-level shortcuts, not ordinary edits.
     if modifiers.control || modifiers.option { return nil }
-
-    // Non-printable editing / caret-move keys. Unmodified Tab with no candidate is
-    // treated as an edit-context mutation so a stale ghost never lingers after
-    // navigation. Shift+Tab stays outdent/navigation and is never observed.
-    switch keyCode {
-    case 51, 117: return .mutated          // Backspace, Forward Delete
-    case 36, 76: return .mutated           // Return, keypad Enter
-    case 48: return modifiers.shift ? nil : .mutated  // unmodified Tab (no candidate)
-    // Caret/selection navigation (arrows, Home, End, Page Up/Down) moves the
-    // insertion point within the field: invalidate so no ghost sticks at the
-    // old caret while the key is not consumed.
-    case 115, 119, 116, 121, 123, 124, 125, 126: return .mutated
-    default: break
-    }
 
     if isOrdinaryTypingText(text, hasReservedMeta: modifiers.hasReservedMeta) {
         return .typed(text)

@@ -490,11 +490,11 @@ final class EditorObservationTests: XCTestCase {
         )
     }
 
-    func testShiftTabIsNeverObserved() {
-        // Shift+Tab is outdent/navigation, not an edit mutation.
-        XCTAssertNil(
-            classifyEditorObservation(keyCode: 48, modifiers: KeyModifiers(shift: true), text: "")
-        )
+    func testModifiedCaretMovesAreObserved() {
+        // Shift+Tab, Option+Backspace and Cmd+Left move the caret: a stale ghost must clear.
+        for (key, mods) in [(UInt16(48), KeyModifiers(shift: true)), (51, KeyModifiers(option: true)), (123, KeyModifiers(command: true))] {
+            XCTAssertEqual(classifyEditorObservation(keyCode: key, modifiers: mods, text: ""), .mutated)
+        }
         XCTAssertEqual(
             classifyEditorObservation(keyCode: 48, modifiers: KeyModifiers(), text: ""),
             .mutated
