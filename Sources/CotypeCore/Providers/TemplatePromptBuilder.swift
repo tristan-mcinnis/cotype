@@ -105,7 +105,7 @@ public enum AutocompletePrompt {
     public static let continuationFactsChars = 600
 
     /// The task the model is given when nothing on screen frames the text.
-    public static let continuationTask = "Write a short, ordinary message to a colleague."
+    public static let continuationTask = "Write a short, ordinary message."
     /// The task when visible text is on screen; that text follows on a new line.
     public static let continuationReplyTask = "Write a short, ordinary reply to this:"
     public static let continuationFactsHeading = "My details:"
