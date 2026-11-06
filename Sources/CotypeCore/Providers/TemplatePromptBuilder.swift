@@ -185,10 +185,10 @@ public enum AutocompletePrompt {
 
 /// Tells code from prose by the shape of the text nearest the caret.
 public enum TextKind {
-    private static let codeShape = #"(?m)[{};]|=|->|\w\(|^(\t| {4})|^\s*(func|def|class|struct|import|package|const|let|var|fn|public|private|#|```)(\s|$)|</?\w+>"#
+    private static let codeShape = CompiledPattern(#"(?m)[{};]|=|->|\w\(|^(\t| {4})|^\s*(func|def|class|struct|import|package|const|let|var|fn|public|private|#|```)(\s|$)|</?\w+>"#)
 
     public static func looksLikeCode(_ text: String) -> Bool {
-        String(text.suffix(200)).range(of: codeShape, options: .regularExpression) != nil
+        codeShape.matches(String(text.suffix(200)))
     }
 
     /// At least four letters' worth of text before the caret. A CJK character
@@ -208,13 +208,12 @@ enum ModelTalk {
     /// A fill-in slot, whole or still streaming: "[Your Name]", "[Option A]",
     /// "[Topic]". Code like `[Int]` or `[String: Any]` does not match, and a
     /// Markdown link is left alone.
-    private static let placeholder = #"\[[A-Za-z][A-Za-z'/]*( [A-Za-z'/]+)+\](?!\()|\[(Topic|Name|Date|Time|Company|Link)\](?!\()|\[[A-Z][A-Za-z'/]* [A-Za-z'/ ]*$"#
-    private static let offerOfOptions = #"(?i)(here are|a few) (a few |some )?options|depending on the context"#
+    private static let placeholder = CompiledPattern(#"\[[A-Za-z][A-Za-z'/]*( [A-Za-z'/]+)+\](?!\()|\[(Topic|Name|Date|Time|Company|Link)\](?!\()|\[[A-Z][A-Za-z'/]* [A-Za-z'/ ]*$"#)
+    private static let offerOfOptions = CompiledPattern(#"(?i)(here are|a few) (a few |some )?options|depending on the context"#)
 
     static func removed(from text: String) -> String {
-        guard text.contains("[") || text.range(of: offerOfOptions, options: .regularExpression) != nil else { return text }
-        if text.range(of: offerOfOptions, options: .regularExpression) != nil { return "" }
-        guard let slot = text.range(of: placeholder, options: .regularExpression) else { return text }
+        if offerOfOptions.matches(text) { return "" }
+        guard text.contains("["), let slot = placeholder.firstRange(in: text) else { return text }
         let before = text[..<slot.lowerBound]
         return String(before.reversed().drop(while: \.isWhitespace).reversed())
     }
@@ -223,10 +222,30 @@ enum ModelTalk {
 /// Decides when the author's own facts belong in a prompt.
 public enum AuthorFacts {
     /// Text that ends where a name, address, employer or place comes next.
-    private static let callsForFacts = #"(?i)(my name is|this is|e-?mail( address)?( is)?( at)?|reach me( at)?|contact me( at)?|i work (at|for)|i'?m with|i am with|based in|i'?m the\b.*|i am the\b.*|my (role|title|company)( is)?|regards,?|sincerely,?|best,?|cheers,?|yours,?|我叫|我是|邮箱(是)?|我在)\s*$"#
+    private static let callsForFacts = CompiledPattern(#"(?i)(my name is|this is|e-?mail( address)?( is)?( at)?|reach me( at)?|contact me( at)?|i work (at|for)|i'?m with|i am with|based in|i'?m the\b.*|i am the\b.*|my (role|title|company)( is)?|regards,?|sincerely,?|best,?|cheers,?|yours,?|我叫|我是|邮箱(是)?|我在)\s*$"#)
 
     public static func areCalledFor(afterText text: String) -> Bool {
-        String(text.suffix(60)).range(of: callsForFacts, options: .regularExpression) != nil
+        callsForFacts.matches(String(text.suffix(60)))
+    }
+}
+
+/// A regular expression compiled once. `String.range(of:options: .regularExpression)`
+/// compiles its pattern on every call, and these run per keystroke and per sample.
+struct CompiledPattern: Sendable {
+    private let expression: NSRegularExpression
+
+    init(_ pattern: String) {
+        // The patterns are literals in this module; a bad one fails every test.
+        expression = try! NSRegularExpression(pattern: pattern)
+    }
+
+    func firstRange(in text: String) -> Range<String.Index>? {
+        let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))
+        return match.flatMap { Range($0.range, in: text) }
+    }
+
+    func matches(_ text: String) -> Bool {
+        firstRange(in: text) != nil
     }
 }
 

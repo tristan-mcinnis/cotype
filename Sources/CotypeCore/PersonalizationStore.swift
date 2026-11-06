@@ -468,9 +468,11 @@ public final class PersonalizationStore: @unchecked Sendable {
                 changed = true
             }
             guard changed else { return }
-            let excess = samples.filter { $0.outcome == .written }.count - WritingMemory.maxKept
-            if excess > 0, let oldest = samples.firstIndex(where: { $0.outcome == .written }) {
-                samples.remove(at: oldest)
+            // One read can add several sentences, so drop every one past the cap.
+            let written = samples.indices.filter { samples[$0].outcome == .written }
+            let excess = written.count - WritingMemory.maxKept
+            for index in written.prefix(max(0, excess)).reversed() {
+                samples.remove(at: index)
             }
             pruneLocked()
             markDirtyLocked(.samples)

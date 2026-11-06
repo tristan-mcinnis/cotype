@@ -84,7 +84,9 @@ public enum WritingMemory {
         var ranked: [(text: String, score: Int)] = []
         for sample in samples {
             guard learnsFrom(appIdentifier: sample.appIdentifier),
-                  let text = text(of: sample), isWorthKeeping(text),
+                  let text = text(of: sample),
+                  // Written samples passed this filter when they were kept.
+                  sample.outcome == .written || isWorthKeeping(text),
                   CaretBoundary.isSpacedScript(text) != wantsUnspaced,
                   !prefix.contains(text),
                   seen.insert(text.lowercased()).inserted
@@ -120,8 +122,10 @@ public enum WritingMemory {
             ? text.split(whereSeparator: \.isWhitespace).count >= minWords
             : text.count >= minWords * 2
         guard enough, !text.contains("@"), !text.contains("://") else { return false }
-        return text.range(of: #"\d{6,}"#, options: .regularExpression) == nil
+        return !longNumber.matches(text)
     }
+
+    private static let longNumber = CompiledPattern(#"\d{6,}"#)
 
     private static func significantWords(of text: String) -> Set<String> {
         let words = text.lowercased().split { !($0.isLetter || $0.isNumber || $0 == "'") }.map(String.init)

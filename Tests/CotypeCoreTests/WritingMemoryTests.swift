@@ -74,6 +74,18 @@ final class WritingMemoryTests: XCTestCase {
         XCTAssertFalse(kept.contains("number 0 is the one we want."))
     }
 
+    func testTheCapHoldsWhenOneReadAddsSeveralSentences() {
+        let store = store()
+        for field in 0..<(WritingMemory.maxKept / 2) {
+            let text = (0..<5).map { "Field \(field) has sentence number \($0) in it." }.joined(separator: " ") + " "
+            store.recordWriting(fromPrefix: text, appIdentifier: "chat")
+        }
+        let kept = store.samples().map(\.prefix)
+        XCTAssertEqual(kept.count, WritingMemory.maxKept)
+        XCTAssertTrue(kept.contains("Field \(WritingMemory.maxKept / 2 - 1) has sentence number 4 in it."))
+        XCTAssertFalse(kept.contains("Field 0 has sentence number 0 in it."))
+    }
+
     func testExamplesPreferSharedWordsThenThisAppThenNewest() {
         let samples = [
             written("the newest thing on my mind today"),
