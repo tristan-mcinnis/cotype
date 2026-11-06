@@ -86,7 +86,7 @@ public struct AXBrowserDomainProvider: BrowserDomainProviding {
 
     @MainActor
     private func stringAttribute(_ element: AXUIElement, _ key: String) -> String? {
-        guard let value = attribute(element, key) else { return nil }
+        guard let value = axAttribute(element, key) else { return nil }
         if let string = value as? String { return string }
         if let url = value as? URL { return url.absoluteString }
         return nil
@@ -96,17 +96,11 @@ public struct AXBrowserDomainProvider: BrowserDomainProviding {
     /// value is treated as absent.
     @MainActor
     private func elementAttribute(_ element: AXUIElement, _ key: String) -> AXUIElement? {
-        guard let value = attribute(element, key),
+        guard let value = axAttribute(element, key),
               CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
         return (value as! AXUIElement)
     }
 
-    @MainActor
-    private func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, key as CFString, &value)
-        return error == .success ? value : nil
-    }
 }
 
 /// A fixed provider for tests and for code paths that deliberately have no

@@ -134,13 +134,13 @@ enum AXFocusedEditorResolver {
 
         return AXFocusSeedPolicy.firstResolved([
             {
-                guard let reported: AXUIElement = attributeValue(appElement, kAXFocusedUIElementAttribute) else {
+                guard let reported: AXUIElement = axAttributeValue(appElement, kAXFocusedUIElementAttribute) else {
                     return nil
                 }
                 return resolve(from: reported)
             },
             {
-                guard let systemSeed: AXUIElement = attributeValue(
+                guard let systemSeed: AXUIElement = axAttributeValue(
                     AXUIElementCreateSystemWide(),
                     kAXFocusedUIElementAttribute
                 ), AXFocusSeedPolicy.acceptsSystemWideSeed(
@@ -187,7 +187,7 @@ enum AXFocusedEditorResolver {
             }
 
             guard next.depth < maxDepth,
-                  let children: [AXUIElement] = attributeValue(next.element, kAXChildrenAttribute)
+                  let children: [AXUIElement] = axAttributeValue(next.element, kAXChildrenAttribute)
             else { continue }
             queue.append(contentsOf: children.map { ($0, next.depth + 1) })
         }
@@ -205,7 +205,7 @@ enum AXFocusedEditorResolver {
     }
 
     private static func facts(for element: AXUIElement, depth: Int) -> AXEditorCandidateFacts {
-        let role: String = attributeValue(element, kAXRoleAttribute) ?? ""
+        let role: String = axAttributeValue(element, kAXRoleAttribute) ?? ""
         let enabled: Bool = booleanAttribute(element, kAXEnabledAttribute) ?? true
         let focused: Bool = booleanAttribute(element, kAXFocusedAttribute) ?? false
         let hasSelection = hasValidSelectionRange(element)
@@ -239,7 +239,7 @@ enum AXFocusedEditorResolver {
         ) {
             hasString = known
         } else {
-            hasString = (attribute(element, kAXValueAttribute) as? String) != nil
+            hasString = (axAttribute(element, kAXValueAttribute) as? String) != nil
         }
 
         return AXEditorCandidateFacts(
@@ -256,7 +256,7 @@ enum AXFocusedEditorResolver {
 
     /// `AXNumberOfCharacters`, or nil when the element does not answer it.
     private static func characterCount(of element: AXUIElement) -> Int? {
-        (attribute(element, kAXNumberOfCharactersAttribute) as? NSNumber)?.intValue
+        (axAttribute(element, kAXNumberOfCharactersAttribute) as? NSNumber)?.intValue
     }
 
     /// The pid that owns an AX element, or nil when it cannot be read.
@@ -275,7 +275,7 @@ enum AXFocusedEditorResolver {
     }
 
     private static func hasValidSelectionRange(_ element: AXUIElement) -> Bool {
-        guard let value = attribute(element, kAXSelectedTextRangeAttribute),
+        guard let value = axAttribute(element, kAXSelectedTextRangeAttribute),
               CFGetTypeID(value) == AXValueGetTypeID()
         else { return false }
         let axValue = value as! AXValue
@@ -287,7 +287,7 @@ enum AXFocusedEditorResolver {
     }
 
     private static func booleanAttribute(_ element: AXUIElement, _ key: String) -> Bool? {
-        guard let value = attribute(element, key) else { return nil }
+        guard let value = axAttribute(element, key) else { return nil }
         if CFGetTypeID(value) == CFBooleanGetTypeID() {
             return CFBooleanGetValue((value as! CFBoolean))
         }
@@ -295,7 +295,7 @@ enum AXFocusedEditorResolver {
     }
 
     private static func pointAttribute(_ element: AXUIElement, _ key: String) -> CGPoint? {
-        guard let value = attribute(element, key), CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        guard let value = axAttribute(element, key), CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
         let axValue = value as! AXValue
         guard AXValueGetType(axValue) == .cgPoint else { return nil }
         var point = CGPoint.zero
@@ -303,19 +303,12 @@ enum AXFocusedEditorResolver {
     }
 
     private static func sizeAttribute(_ element: AXUIElement, _ key: String) -> CGSize? {
-        guard let value = attribute(element, key), CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        guard let value = axAttribute(element, key), CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
         let axValue = value as! AXValue
         guard AXValueGetType(axValue) == .cgSize else { return nil }
         var size = CGSize.zero
         return AXValueGetValue(axValue, .cgSize, &size) ? size : nil
     }
 
-    private static func attributeValue<T>(_ element: AXUIElement, _ key: String) -> T? {
-        attribute(element, key) as? T
-    }
 
-    private static func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
-        var value: CFTypeRef?
-        return AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success ? value : nil
-    }
 }

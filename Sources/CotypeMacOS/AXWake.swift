@@ -56,3 +56,15 @@ enum AXWake {
         prepare(app)
     }
 }
+
+/// Reads one AX attribute; nil on any error or missing value.
+func axAttribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
+    var value: CFTypeRef?
+    return AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success ? value : nil
+}
+
+/// Reads one AX attribute cast to `T`. The generic avoids the conditional
+/// downcast-to-CF-type error a direct `as?` on `AXUIElement` / `AXValue` hits.
+func axAttributeValue<T>(_ element: AXUIElement, _ key: String) -> T? {
+    axAttribute(element, key) as? T
+}

@@ -278,7 +278,7 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
         let rawAnchor = precedingCharacterCaretRect(of: element, caretRange: caretRange)
         let zero = rawZero.flatMap { Self.isUsableCaretRect($0, inside: fieldBounds) ? $0 : nil }
         let anchor = rawAnchor.flatMap { Self.isUsableCaretRect($0, inside: fieldBounds) ? $0 : nil }
-        let isWeb = attribute(element, Self.selectedTextMarkerRangeAttribute) != nil
+        let isWeb = axAttribute(element, Self.selectedTextMarkerRangeAttribute) != nil
         if let chosen = Self.reconcileCaret(zeroLength: zero, anchor: anchor, isWebContent: isWeb) {
             if log { CotypeLog.geometry.debug("caret via \(chosen.strategy.rawValue, privacy: .public)") }
             return chosen.rect
@@ -314,7 +314,7 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
                 return rect
             }
             guard depth < Self.deepSearchMaxDepth,
-                  let children = attributeValue(node, kAXChildrenAttribute) as [AXUIElement]? else { continue }
+                  let children = axAttributeValue(node, kAXChildrenAttribute) as [AXUIElement]? else { continue }
             queue.append(contentsOf: children.map { ($0, depth + 1) })
         }
         CotypeLog.geometry.info("no caret: deep search found nothing in \(cursor, privacy: .public) nodes")
@@ -417,7 +417,7 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
             }
             guard ancestorsRemaining > 0 else { return nil }
             ancestorsRemaining -= 1
-            current = attributeValue(candidate, kAXParentAttribute) as AXUIElement?
+            current = axAttributeValue(candidate, kAXParentAttribute) as AXUIElement?
         }
         return nil
     }
@@ -427,7 +427,7 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
     /// back: the attribute name is shared by other AX object types, and handing
     /// garbage to the parameterized call would only fail silently.
     private func boundsForTextMarkerRange(of element: AXUIElement) -> CGRect? {
-        guard let markerRange = attribute(element, Self.selectedTextMarkerRangeAttribute),
+        guard let markerRange = axAttribute(element, Self.selectedTextMarkerRangeAttribute),
               CFGetTypeID(markerRange) == AXTextMarkerRangeGetTypeID()
         else { return nil }
         return parameterizedRect(
@@ -439,21 +439,11 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
 
     // MARK: - AX attribute helpers
 
-    /// Read a single AX attribute, returning nil on any error or missing value.
-    private func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, key as CFString, &value)
-        return error == .success ? value : nil
-    }
 
-    private func attributeValue<T>(_ element: AXUIElement, _ key: String) -> T? {
-        guard let value = attribute(element, key) else { return nil }
-        return value as? T
-    }
 
     /// The selected-text range (kAXSelectedTextRange) as a CFRange, if present.
     private func selectedRange(of element: AXUIElement) -> CFRange? {
-        guard let axValue = attributeValue(element, kAXSelectedTextRangeAttribute) as AXValue?,
+        guard let axValue = axAttributeValue(element, kAXSelectedTextRangeAttribute) as AXValue?,
               AXValueGetType(axValue) == .cfRange else { return nil }
         var range = CFRange()
         guard AXValueGetValue(axValue, .cfRange, &range) else { return nil }
@@ -482,7 +472,7 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
 
     /// AXPosition of an element as a CGPoint (top-left origin, y-down).
     private func positionAttribute(of element: AXUIElement) -> CGPoint? {
-        guard let value = attribute(element, kAXPositionAttribute),
+        guard let value = axAttribute(element, kAXPositionAttribute),
               CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
         let axValue = unsafeBitCast(value, to: AXValue.self)
         guard AXValueGetType(axValue) == .cgPoint else { return nil }
@@ -493,7 +483,7 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
 
     /// AXSize of an element as a CGSize.
     private func sizeAttribute(of element: AXUIElement) -> CGSize? {
-        guard let value = attribute(element, kAXSizeAttribute),
+        guard let value = axAttribute(element, kAXSizeAttribute),
               CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
         let axValue = unsafeBitCast(value, to: AXValue.self)
         guard AXValueGetType(axValue) == .cgSize else { return nil }
@@ -682,7 +672,7 @@ public struct AXCaretGeometryProvider: InlineCaretGeometryProvider, InlineFieldG
 
     /// The focused element's text length, used to bound the font-probe range.
     private func valueLength(of element: AXUIElement) -> Int {
-        guard let value = attributeValue(element, kAXValueAttribute) as String? else { return 0 }
+        guard let value = axAttributeValue(element, kAXValueAttribute) as String? else { return 0 }
         return (value as NSString).length
     }
 

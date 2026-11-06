@@ -115,7 +115,7 @@ public struct AXTextContextProvider: ContextProvider {
         // context. Do not turn an AX read failure into an empty prompt, since
         // that would bypass the fail-closed guarantee and could still generate
         // or record a completion for an unknown element.
-        guard let text = attributeValue(focusedElement, kAXValueAttribute) as String? else {
+        guard let text = axAttributeValue(focusedElement, kAXValueAttribute) as String? else {
             CotypeLog.loop.info("unreadable: no string value in \(bundleID, privacy: .public)")
             throw SensitiveContextError.unreadable
         }
@@ -149,7 +149,7 @@ public struct AXTextContextProvider: ContextProvider {
         }
         let (prefix, suffix) = (split.prefix, split.suffix)
 
-        let selected = attributeValue(focusedElement, kAXSelectedTextAttribute) as String? ?? ""
+        let selected = axAttributeValue(focusedElement, kAXSelectedTextAttribute) as String? ?? ""
 
         var extra = request.extra
         extra["appName"] = app.localizedName ?? ""
@@ -188,7 +188,7 @@ public struct AXTextContextProvider: ContextProvider {
     /// a missing subrole is a normal attribute absence; the detector still
     /// refuses when the element is unreadable as a whole.
     private func isSecureTextElement(_ element: AXUIElement) -> Bool {
-        guard let subrole = attributeValue(element, kAXSubroleAttribute) as String? else { return false }
+        guard let subrole = axAttributeValue(element, kAXSubroleAttribute) as String? else { return false }
         return subrole == kAXSecureTextFieldSubrole
     }
 
@@ -196,7 +196,7 @@ public struct AXTextContextProvider: ContextProvider {
     /// `containsProtectedContent` attribute (password managers, secure fields).
     /// Reads as a CFBoolean to avoid a lossy Objective-C cast.
     private func containsProtectedContent(_ element: AXUIElement) -> Bool {
-        guard let value = attribute(element, NSAccessibility.Attribute.containsProtectedContent.rawValue) else {
+        guard let value = axAttribute(element, NSAccessibility.Attribute.containsProtectedContent.rawValue) else {
             return false
         }
         if CFGetTypeID(value) == CFBooleanGetTypeID() {
@@ -207,22 +207,7 @@ public struct AXTextContextProvider: ContextProvider {
 
     // MARK: - Helpers
 
-    /// Read a single AX attribute, returning nil on any error or missing value.
-    /// The attribute constants (e.g. `kAXValueAttribute`) are bridged to Swift as
-    /// `String`, so we convert to `CFString` for the C API.
-    private func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, key as CFString, &value)
-        return error == .success ? value : nil
-    }
 
-    /// Read a single AX attribute and cast the result to a specific type.
-    /// Using a generic avoids the conditional-downcast-to-CF-type warning/error
-    /// that a direct `as?` on `AXUIElement` / `AXValue` triggers.
-    private func attributeValue<T>(_ element: AXUIElement, _ key: String) -> T? {
-        guard let value = attribute(element, key) else { return nil }
-        return value as? T
-    }
 
 }
 

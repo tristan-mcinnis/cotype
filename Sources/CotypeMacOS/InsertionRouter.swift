@@ -79,12 +79,6 @@ public struct LiveAXEditorTextOps: AXEditorTextOps {
         )
     }
 
-    private func axAttributeValue<T>(_ element: AXUIElement, _ key: String) -> T? {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, key as CFString, &value)
-        guard error == .success, let value else { return nil }
-        return value as? T
-    }
 }
 
 /// Session bound to a single pinned AX element. Every operation uses that exact
@@ -121,12 +115,6 @@ struct LiveAXEditorSession: AXEditorSession {
         return AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue) == .success
     }
 
-    private func axAttributeValue<T>(_ element: AXUIElement, _ key: String) -> T? {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, key as CFString, &value)
-        guard error == .success, let value else { return nil }
-        return value as? T
-    }
 }
 
 /// Direct AX text inserter. Inserts a completion by replacing the focused

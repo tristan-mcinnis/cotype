@@ -128,12 +128,6 @@ public struct AXFocusIdentityProvider: FocusIdentityProvider {
         return value as? String
     }
 
-    private func axAttributeValue<T>(_ element: AXUIElement, _ key: String) -> T? {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, key as CFString, &value)
-        guard error == .success, let value else { return nil }
-        return value as? T
-    }
 
     /// Read the focused element's selected-range attribute and decode it.
     static func decodeSelectionRange(_ element: AXUIElement) -> SelectedRangeRead {

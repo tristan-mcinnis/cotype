@@ -51,10 +51,10 @@ struct AXActiveWindowContextCollector: ActiveWindowContextProviding {
     func context(in app: NSRunningApplication, excluding editor: AXUIElement) -> String {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         let window: AXUIElement?
-        if let editorWindow: AXUIElement = attributeValue(editor, kAXWindowAttribute) {
+        if let editorWindow: AXUIElement = axAttributeValue(editor, kAXWindowAttribute) {
             window = editorWindow
         } else {
-            window = attributeValue(appElement, kAXFocusedWindowAttribute)
+            window = axAttributeValue(appElement, kAXFocusedWindowAttribute)
         }
         guard let window else { return "" }
         return context(from: window, excluding: editor)
@@ -75,14 +75,14 @@ struct AXActiveWindowContextCollector: ActiveWindowContextProviding {
             if identity == editorIdentity { continue }
             if isSensitive(element) { continue }
 
-            let role: String = attributeValue(element, kAXRoleAttribute) ?? ""
+            let role: String = axAttributeValue(element, kAXRoleAttribute) ?? ""
             if Self.contextRoles.contains(role), isVisible(element, inside: windowFrame),
                let text = readableText(element) {
                 fragments.append(text)
             }
 
             guard next.1 < maxDepth,
-                  let children: [AXUIElement] = attributeValue(element, kAXChildrenAttribute)
+                  let children: [AXUIElement] = axAttributeValue(element, kAXChildrenAttribute)
             else { continue }
             // Reverse so stack traversal preserves AX child/reading order.
             for child in children.reversed() {
@@ -98,10 +98,10 @@ struct AXActiveWindowContextCollector: ActiveWindowContextProviding {
     ]
 
     private func readableText(_ element: AXUIElement) -> String? {
-        if let value: String = attributeValue(element, kAXValueAttribute), !value.isEmpty {
+        if let value: String = axAttributeValue(element, kAXValueAttribute), !value.isEmpty {
             return value
         }
-        if let title: String = attributeValue(element, kAXTitleAttribute), !title.isEmpty {
+        if let title: String = axAttributeValue(element, kAXTitleAttribute), !title.isEmpty {
             return title
         }
         return nil
@@ -115,7 +115,7 @@ struct AXActiveWindowContextCollector: ActiveWindowContextProviding {
     }
 
     private func isSensitive(_ element: AXUIElement) -> Bool {
-        let subrole: String = attributeValue(element, kAXSubroleAttribute) ?? ""
+        let subrole: String = axAttributeValue(element, kAXSubroleAttribute) ?? ""
         if subrole == kAXSecureTextFieldSubrole { return true }
         guard let protected: Bool = booleanAttribute(
             element,
@@ -125,19 +125,12 @@ struct AXActiveWindowContextCollector: ActiveWindowContextProviding {
     }
 
     private func booleanAttribute(_ element: AXUIElement, _ key: String) -> Bool? {
-        guard let value = attribute(element, key) else { return nil }
+        guard let value = axAttribute(element, key) else { return nil }
         if CFGetTypeID(value) == CFBooleanGetTypeID() {
             return CFBooleanGetValue((value as! CFBoolean))
         }
         return (value as? NSNumber)?.boolValue
     }
 
-    private func attributeValue<T>(_ element: AXUIElement, _ key: String) -> T? {
-        attribute(element, key) as? T
-    }
 
-    private func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
-        var value: CFTypeRef?
-        return AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success ? value : nil
-    }
 }
