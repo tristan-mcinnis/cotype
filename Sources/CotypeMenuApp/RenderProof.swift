@@ -27,9 +27,7 @@ enum RenderProof {
         let websiteRules = WebsiteRulesStore(
             fileURL: directory.appendingPathComponent("proof-website-rules.json")
         )
-        let engineManager = EngineManager()
         let completionController = CompletionController(
-            engineManager: engineManager,
             personalization: personalization,
             overrides: overrides,
             websiteRules: websiteRules
@@ -41,7 +39,6 @@ enum RenderProof {
         for (name, appearance) in [("dark", NSAppearance(named: .darkAqua)), ("light", NSAppearance(named: .aqua))] {
             let settings = { (section: SettingsSection) in
                 SettingsView(
-                    engineManager: engineManager,
                     completionController: completionController,
                     personalization: personalization,
                     overrides: overrides,

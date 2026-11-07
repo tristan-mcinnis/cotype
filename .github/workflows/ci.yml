@@ -82,43 +82,6 @@ jobs:
           if-no-files-found: error
 
   # -------------------------------------------------------------------------
-  # Model-eval lane. OPT-IN and model-equipped. Runs only when explicitly
-  # triggered (workflow_dispatch) on a self-hosted runner that has the pinned
-  # GGUF cached. If the model is absent, verify.sh --model-lane FAILS rather
-  # than silently passing — this is the "required model vs explicit skip"
-  # distinction. The deterministic gate above never needs a model. The lane runs
-  # the FULL seeded eval suite (verify.sh defaults COTYPE_EVAL_CASES=0), never a
-  # 3-case smoke.
-  # -------------------------------------------------------------------------
-  model-eval:
-    name: Model evaluation lane (requires model)
-    if: github.event_name == 'workflow_dispatch'
-    # Use a runner that has cached `~/models/gemma-4-E2B-it-Q4_K_M.gguf`.
-    runs-on: [self-hosted, macOS, arm64, model-equipped]
-    timeout-minutes: 90
-    env:
-      COTYPE_MODEL_EVAL: "1"
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Preflight model presence
-        run: |
-          model="$HOME/models/gemma-4-E2B-it-Q4_K_M.gguf"
-          if [[ ! -f "$model" ]]; then
-            echo "::error::Required model not present at $model. The model-eval lane requires the model and will not silently skip."
-            exit 1
-          fi
-          shasum -a 256 "$model"
-
-      - name: Build
-        run: swift build -c release
-
-      - name: Run model evaluation lane (requires model)
-        env:
-          COTYPE_MODEL_EVAL: "1"
-        run: ./scripts/verify.sh --model-lane --no-app --release-only
-
-  # -------------------------------------------------------------------------
   # Release packaging (opt-in). Only for a notarized, Developer ID-signed build.
   # This is the documented opt-in release path; see docs/RELEASE.md.
   # -------------------------------------------------------------------------
@@ -128,7 +91,7 @@ jobs:
     # arm64 Apple-Silicon hosted runner (macos-14 hosted images are deprecated).
     runs-on: macos-15
     timeout-minutes: 30
-    needs: model-eval
+    needs: build-test
     # A release/publish run must never be cancelled mid-publish (a partially
     # published channel is worse than none). Use a dedicated concurrency group
     # with cancel-in-progress:false so a new dispatch waits instead of cancelling.

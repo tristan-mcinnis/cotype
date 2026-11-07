@@ -48,10 +48,6 @@ final class VisiblePreviewAcceptanceTests: XCTestCase {
         defaults.set(true, forKey: "enableCompletions")
         let inserter = RecordingInserter()
         let controller = CompletionController(
-            engineManager: EngineManager(
-                modelPathOverride: "/fake/model.gguf",
-                engineFactory: { _ in MockClosableEngine() }
-            ),
             personalization: makePersonalizationStore(),
             overrides: AppOverridesStore(fileURL: tempFileURL("overrides")),
             websiteRules: makeWebsiteRulesStore(),

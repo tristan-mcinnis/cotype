@@ -74,8 +74,6 @@ Cotype $TAG
 Build: $COTYPE_BUILD_NUMBER
 Git commit: $COTYPE_GIT_COMMIT
 Bundle ID: $COTYPE_BUNDLE_ID
-Model: $COTYPE_MODEL_FILENAME ($COTYPE_MODEL_LICENSE)
-llama.cpp build: $COTYPE_LLAMA_BUILD ($COTYPE_LLAMA_LICENSE)
 Signing identity: $(sign_identity_label "$(resolve_sign_identity)")
 Notarized: $NOTARIZED
 Distribution: $([[ "$NOTARIZED" == "yes" ]] && echo "Developer ID / notarized" || echo "private personal build; not for public distribution")

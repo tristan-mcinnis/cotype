@@ -4,7 +4,7 @@ import Foundation
 ///
 /// A completion prompt is only as good as the text immediately before the
 /// cursor. A long document's early lines carry no signal for what belongs right
-/// after the caret, and a huge prefix both wastes the (finite) llama.cpp context
+/// after the caret, and a huge prefix both wastes the (finite) model context
 /// and risks drowning out the Gemma system/user/model header structure. This
 /// type keeps the trailing `maxChars` of a prefix and drops the far-from-caret
 /// head, so the prompt always reflects the text nearest the insertion point.

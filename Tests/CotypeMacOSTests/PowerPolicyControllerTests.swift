@@ -18,10 +18,6 @@ final class PowerPolicyControllerTests: XCTestCase {
         defaults.set(settings.pauseInLowPowerMode, forKey: BatteryPolicy.pauseInLowPowerModeKey)
         let inserter = RecordingInserter()
         let controller = CompletionController(
-            engineManager: EngineManager(
-                modelPathOverride: "/fake/model.gguf",
-                engineFactory: { _ in MockClosableEngine() }
-            ),
             personalization: makePersonalizationStore(),
             overrides: AppOverridesStore(fileURL: tempFileURL("power-overrides")),
             websiteRules: makeWebsiteRulesStore(),

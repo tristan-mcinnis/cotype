@@ -4,40 +4,6 @@ import CotypeCore
 
 // MARK: - Shared test doubles and helpers
 
-/// A mock engine that implements `EngineClosable` so `EngineManager` lifecycle
-/// can be tested without a real model.
-final class MockClosableEngine: EngineClosable, @unchecked Sendable {
-    let name: String
-    let response: String
-    private var isClosed = false
-    private let lock = NSLock()
-
-    init(name: String = "mock-closable", response: String = "hello") {
-        self.name = name
-        self.response = response
-    }
-
-    func close() {
-        lock.lock()
-        isClosed = true
-        lock.unlock()
-    }
-
-    var closed: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return isClosed
-    }
-
-    func stream(prompt: Prompt) -> AsyncThrowingStream<CompletionEvent, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.yield(.token(response))
-            continuation.yield(.end)
-            continuation.finish()
-        }
-    }
-}
-
 /// An inset that records what was inserted and into which app.
 final class RecordingInserter: CompletionInserter, @unchecked Sendable {
     var inserted: [String] = []

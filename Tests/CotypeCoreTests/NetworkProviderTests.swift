@@ -40,101 +40,16 @@ private final class StubURLProtocol: URLProtocol {
 
 final class NetworkProviderTests: XCTestCase {
     private var session: URLSession!
-    private var directory: URL!
 
     override func setUpWithError() throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         session = URLSession(configuration: configuration)
-        directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cotype-network-tests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
         session.invalidateAndCancel()
         StubURLProtocol.lock.withLock { StubURLProtocol.handler = nil }
-        if let directory { try? FileManager.default.removeItem(at: directory) }
-    }
-
-    func testModelDescriptorEncodesPathSegments() {
-        let descriptor = ModelDescriptor(
-            repo: "owner/model name",
-            filename: "gemma model.gguf",
-            destination: directory.appendingPathComponent("model.gguf")
-        )
-        XCTAssertEqual(
-            descriptor.resolvedURL.absoluteString,
-            "https://huggingface.co/owner/model%20name/resolve/main/gemma%20model.gguf"
-        )
-    }
-
-    func testDownloaderWritesFreshFileAndCompletes() async throws {
-        let body = Data("complete model".utf8)
-        StubURLProtocol.lock.withLock {
-            StubURLProtocol.handler = { request in
-                XCTAssertNil(request.value(forHTTPHeaderField: "Range"))
-                return .init(
-                    status: 200,
-                    headers: ["Content-Length": "\(body.count)"],
-                    body: body
-                )
-            }
-        }
-
-        let destination = directory.appendingPathComponent("fresh.gguf")
-        let progress = try await collectDownload(to: destination)
-
-        XCTAssertEqual(try Data(contentsOf: destination), body)
-        XCTAssertEqual(progress.last?.downloadedBytes, Int64(body.count))
-        XCTAssertEqual(progress.last?.isComplete, true)
-    }
-
-    func testDownloaderRestartsProgressWhenServerIgnoresRange() async throws {
-        let stale = Data(repeating: 1, count: 100)
-        let replacement = Data("new model".utf8)
-        let destination = directory.appendingPathComponent("restart.gguf")
-        try stale.write(to: destination)
-        StubURLProtocol.lock.withLock {
-            StubURLProtocol.handler = { request in
-                XCTAssertEqual(request.value(forHTTPHeaderField: "Range"), "bytes=100-")
-                return .init(
-                    status: 200,
-                    headers: ["Content-Length": "\(replacement.count)"],
-                    body: replacement
-                )
-            }
-        }
-
-        let progress = try await collectDownload(to: destination)
-        XCTAssertEqual(try Data(contentsOf: destination), replacement)
-        XCTAssertTrue(progress.allSatisfy { $0.downloadedBytes <= Int64(replacement.count) })
-    }
-
-    func testDownloaderResumesAtValidatedOffset() async throws {
-        let first = Data("partial-".utf8)
-        let rest = Data("model".utf8)
-        let destination = directory.appendingPathComponent("resume.gguf")
-        try first.write(to: destination)
-
-        StubURLProtocol.lock.withLock {
-            StubURLProtocol.handler = { request in
-                XCTAssertEqual(request.value(forHTTPHeaderField: "Range"), "bytes=\(first.count)-")
-                return .init(
-                    status: 206,
-                    headers: [
-                        "Content-Range": "bytes \(first.count)-\(first.count + rest.count - 1)/\(first.count + rest.count)",
-                        "Content-Length": "\(rest.count)",
-                    ],
-                    body: rest
-                )
-            }
-        }
-
-        let progress = try await collectDownload(to: destination)
-        XCTAssertEqual(try Data(contentsOf: destination), first + rest)
-        XCTAssertEqual(progress.last?.downloadedBytes, Int64(first.count + rest.count))
-        XCTAssertEqual(progress.last?.isComplete, true)
     }
 
     func testOpenAICompatibleEngineParsesStreamingSSE() async throws {
@@ -243,46 +158,6 @@ final class NetworkProviderTests: XCTestCase {
         }
     }
 
-    func testDownloaderTreatsCompleteRangeAsIdempotent() async throws {
-        let complete = Data("complete".utf8)
-        let destination = directory.appendingPathComponent("complete.gguf")
-        try complete.write(to: destination)
-        StubURLProtocol.lock.withLock {
-            StubURLProtocol.handler = { _ in
-                .init(status: 416, headers: ["Content-Range": "bytes */\(complete.count)"])
-            }
-        }
-
-        let progress = try await collectDownload(to: destination)
-        XCTAssertEqual(try Data(contentsOf: destination), complete)
-        XCTAssertEqual(progress.last?.downloadedBytes, Int64(complete.count))
-        XCTAssertEqual(progress.last?.isComplete, true)
-    }
-
-    func testDownloaderRejectsMismatchedResumeRangeWithoutCorruptingFile() async throws {
-        let partial = Data("safe partial".utf8)
-        let destination = directory.appendingPathComponent("mismatch.gguf")
-        try partial.write(to: destination)
-
-        StubURLProtocol.lock.withLock {
-            StubURLProtocol.handler = { _ in
-                .init(
-                    status: 206,
-                    headers: ["Content-Range": "bytes 0-2/3"],
-                    body: Data("bad".utf8)
-                )
-            }
-        }
-
-        do {
-            _ = try await collectDownload(to: destination)
-            XCTFail("Expected rangeMismatch")
-        } catch ModelDownloadError.rangeMismatch {
-            // Expected.
-        }
-        XCTAssertEqual(try Data(contentsOf: destination), partial)
-    }
-
     private func requestBody(_ request: URLRequest) throws -> Data {
         if let body = request.httpBody { return body }
         let stream = try XCTUnwrap(request.httpBodyStream)
@@ -297,19 +172,6 @@ final class NetworkProviderTests: XCTestCase {
             data.append(buffer, count: count)
         }
         return data
-    }
-
-    private func collectDownload(to destination: URL) async throws -> [DownloadProgress] {
-        let descriptor = ModelDescriptor(
-            repo: "owner/repo",
-            filename: destination.lastPathComponent,
-            destination: destination
-        )
-        var values: [DownloadProgress] = []
-        for try await value in GGUFDownloader(session: session).download(descriptor) {
-            values.append(value)
-        }
-        return values
     }
 }
 

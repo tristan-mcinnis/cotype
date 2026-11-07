@@ -21,9 +21,8 @@ public protocol PromptBuilder {
     func buildPrompt(context: CompletionContext) async throws -> Prompt
 }
 
-/// Runs a model and streams completion tokens. Implementations may be local
-/// (llama.cpp) or remote (OpenAI, Anthropic, a local server) — the pipeline
-/// does not care which.
+/// Runs a model and streams completion tokens. The pipeline does not care
+/// which server answers.
 public protocol InferenceEngine {
     /// Human-readable name, surfaced in logs/events.
     var name: String { get }

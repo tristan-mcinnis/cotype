@@ -10,7 +10,6 @@ public enum NotShownReason: String, CaseIterable, Codable, Sendable {
     case appDisabled
     case websiteDisabled
     case pausedByPowerPolicy
-    case noModel
     case noFocusedEditor
     case secureField
     case protectedContent
@@ -42,7 +41,6 @@ public enum NotShownReason: String, CaseIterable, Codable, Sendable {
         case .appDisabled: return "App turned off"
         case .websiteDisabled: return "Website turned off"
         case .pausedByPowerPolicy: return "Automatic suggestions paused to save power"
-        case .noModel: return "No model installed"
         case .noFocusedEditor: return "No focused editor found"
         case .secureField: return "Secure text field"
         case .protectedContent: return "Protected content"

@@ -63,26 +63,21 @@ final class NotShownReasonTests: XCTestCase {
         focus: FocusTarget? = NotShownReasonTests.focus,
         geometry: InlineCaretGeometryProvider? = FixedGeometry(),
         context: ContextProvider? = nil,
-        enabled: Bool = true,
-        noModel: Bool = false
+        enabled: Bool = true
     ) -> Rig {
         let defaults = makeUserDefaults()
         defaults.set(enabled, forKey: "enableCompletions")
         let notShown = NotShownStore(fileURL: tempFileURL("not-shown"), debounce: 60)
         let stub = StubFocusIdentityProvider(focus)
         let renderer = GhostTextRenderer(geometryProvider: geometry)
-        let manager = EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() })
-        if noModel { manager.refreshToPath(nil) }
         let controller = CompletionController(
-            engineManager: manager,
             personalization: makePersonalizationStore("not-shown"),
             overrides: AppOverridesStore(fileURL: tempFileURL("not-shown-overrides")),
             websiteRules: makeWebsiteRulesStore(),
             notShown: notShown,
             inserter: RecordingInserter(),
             renderer: renderer,
-            pipelineEngineOverride: noModel ? nil : engine,
-            daemonEngineProvider: { _ in nil },
+            pipelineEngineOverride: engine,
             contextProviderOverride: context,
             frontmostAppProvider: { app },
             focusIdentityProvider: stub,
@@ -117,12 +112,6 @@ final class NotShownReasonTests: XCTestCase {
         XCTAssertEqual(count(rig, .appDisabled, app: "com.mitchellh.ghostty"), 1)
     }
 
-    func testNoModel() {
-        let rig = makeRig(noModel: true)
-        XCTAssertFalse(rig.controller.trigger())
-        XCTAssertEqual(count(rig, .noModel), 1)
-    }
-
     func testNoFocusedEditor() {
         let rig = makeRig(focus: nil)
         XCTAssertFalse(rig.controller.trigger())
@@ -146,7 +135,7 @@ final class NotShownReasonTests: XCTestCase {
     }
 
     func testEngineFailure() async {
-        let rig = makeRig(engine: ThrowingEngine(error: EngineError.noModel))
+        let rig = makeRig(engine: ThrowingEngine(error: URLError(.cannotConnectToHost)))
         XCTAssertTrue(rig.controller.trigger())
         let counted = await waitUntil { self.count(rig, .engineFailure) == 1 }
         XCTAssertTrue(counted)
@@ -252,7 +241,6 @@ final class NotShownReasonTests: XCTestCase {
     func testControllerWithoutAStoreRecordsNothing() {
         let defaults = makeUserDefaults()
         let controller = CompletionController(
-            engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: makePersonalizationStore("not-shown-none"),
             overrides: AppOverridesStore(fileURL: tempFileURL("not-shown-none-overrides")),
             websiteRules: makeWebsiteRulesStore(),

@@ -8,8 +8,8 @@ import CotypeMacOS
 import HouseDesign
 import HouseUIKit
 
-/// Menu-bar app delegate. Owns the status item, the lazy engine, the completion
-/// controller, the global key monitor, and the settings window.
+/// Menu-bar app delegate. Owns the status item, the completion controller,
+/// the global key monitor, and the settings window.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -21,7 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let personalization = PersonalizationStore()
     private let overrides = AppOverridesStore()
     private let websiteRules = WebsiteRulesStore()
-    private let engineManager = EngineManager()
     private let localModels = LocalModelsMonitor()
     private let keyMonitor = GlobalKeyMonitor()
     private let updater = SparkleUpdateController()
@@ -34,7 +33,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     override init() {
         super.init()
         completionController = CompletionController(
-            engineManager: engineManager,
             personalization: personalization,
             overrides: overrides,
             websiteRules: websiteRules,
@@ -49,9 +47,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Suggest while typing, like Cotypist. The trigger chord still
             // forces a suggestion on demand.
             CompletionController.autoSuggestKey: true,
-            // Cotype is a thin client of the Local Models system. The
-            // menu-bar daemon owns the registry, weights, and model lifecycle.
-            DaemonRoutedEngine.enabledKey: true,
             // Privacy: feedback (prefix/completion) content logging defaults to
             // OFF on a fresh install, but disclosed content-free metrics and
             // privacy config are still persisted locally (see PRIVACY.md).
@@ -158,10 +153,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func subscribe() {
-        engineManager.$status
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.rebuildMenu() }
-            .store(in: &cancellables)
         localModels.$status
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.rebuildMenu() }
@@ -222,32 +213,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// rows, model lifecycle and Privacy Settings are the second group, and
     /// Settings / Quit sit in the footer well.
     private func rebuildMenu() {
-        let status = engineManager.status
         let phase = completionController.phase
-        let daemonMode = DaemonRoutedEngine.isDaemonMode()
-
-        let statusTitle: String
-        let isReady: Bool
-        if daemonMode {
-            let localStatus = localModels.status
-            if localStatus.isConfiguredModelWarm {
-                statusTitle = "\(localStatus.configuredModelAlias) warm"
-                isReady = true
-            } else if localStatus.isReachable {
-                statusTitle = "load \(localStatus.configuredModelAlias) in Local Models"
-                isReady = false
-            } else {
-                statusTitle = "Local Models daemon offline"
-                isReady = false
-            }
-        } else {
-            switch status {
-            case .idle: statusTitle = "Model not loaded"; isReady = false
-            case .loading: statusTitle = "Model loading…"; isReady = false
-            case .ready: statusTitle = "Model ready"; isReady = true
-            case .failed: statusTitle = "Model error"; isReady = false
-            }
-        }
+        let localStatus = localModels.status
+        let isReady = localStatus.isConfiguredModelWarm
+        let statusTitle = isReady ? "\(localStatus.configuredModelAlias) warm"
+            : localStatus.isReachable ? "load \(localStatus.configuredModelAlias) in Local Models"
+            : "Local Models daemon offline"
 
         let phaseTitle: String
         switch phase {
@@ -298,42 +269,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ),
         ]
 
-        var more: [PanelAction] = []
-        if daemonMode {
-            // Model lifecycle belongs to the Local Models menu bar in daemon mode;
-            // Cotype neither loads nor unloads the in-process copy.
-            more.append(PanelAction(
+        // Model lifecycle belongs to the Local Models menu bar.
+        model.moreActions = [
+            PanelAction(
                 id: "modelLifecycle",
                 glyph: "shippingbox",
                 title: "Load/unload models in Local Models",
                 isEnabled: false
-            ))
-        } else if case .ready = status {
-            more.append(PanelAction(
-                id: "unloadModel",
-                glyph: "eject",
-                title: "Unload model",
-                run: { [weak self] in self?.unloadModel() }
-            ))
-        } else {
-            more.append(PanelAction(
-                id: "loadModel",
-                glyph: "shippingbox",
-                title: "Load model",
-                isEnabled: phase == .idle,
-                run: { [weak self] in self?.loadModel() }
-            ))
-        }
-        more.append(PanelAction(
-            id: "privacy",
-            glyph: "hand.raised",
-            title: "Open Privacy Settings…",
-            run: { [weak self] in
-                self?.menuPanel.close()
-                self?.openPrivacy()
-            }
-        ))
-        model.moreActions = more
+            ),
+            PanelAction(
+                id: "privacy",
+                glyph: "hand.raised",
+                title: "Open Privacy Settings…",
+                run: { [weak self] in
+                    self?.menuPanel.close()
+                    self?.openPrivacy()
+                }
+            ),
+        ]
     }
 
     // MARK: - Actions
@@ -356,15 +309,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func cancelCompletion() {
         completionController.cancel(recordingRejection: true)
-    }
-
-    private func loadModel() {
-        engineManager.loadIfNeeded()
-    }
-
-    private func unloadModel() {
-        guard completionController.phase == .idle else { return }
-        engineManager.unload()
     }
 
     private func openPrivacy() {
@@ -394,7 +338,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let rootView = SettingsView(
-            engineManager: engineManager,
             completionController: completionController,
             personalization: personalization,
             overrides: overrides,

@@ -10,7 +10,6 @@ import HouseUIKit
 // MARK: - General
 
 struct GeneralPane: View {
-    @ObservedObject var engineManager: EngineManager
     @ObservedObject var completionController: CompletionController
 
     @AppStorage("systemPrompt") private var systemPrompt =
@@ -88,7 +87,7 @@ struct GeneralPane: View {
             }
 
             SettingsCard(title: "Model") {
-                ModelStatusRow(engineManager: engineManager)
+                ModelStatusRow()
             }
 
             SettingsCard(title: "Generation") {
@@ -186,7 +185,7 @@ struct GeneralPane: View {
 
             SettingsCard(title: "Note") {
                 SlateBlock {
-                    SlateProse("The system prompt and prompt style apply to the next completion. Temperature and the token budget take effect immediately for the daemon lane; the in-process model reloads with its own settings.", tertiary: true)
+                    SlateProse("The system prompt and prompt style apply to the next completion. Temperature and the token budget take effect immediately.", tertiary: true)
                 }
             }
         }

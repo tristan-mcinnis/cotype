@@ -12,15 +12,14 @@ set -euo pipefail
 #     - app bundle construction + validation (--no-app to skip)
 #     These MUST pass; failure exits non-zero.
 #
-#   MODEL EVAL (explicit, model-equipped lane)
-#     - Requires a real GGUF and a per-machine flag. There is a strict
-#       distinction between two states:
-#         * lane requested but model ABSENT  -> HARD FAIL (never silent pass)
-#         * lane NOT requested              -> explicit "skipped" (exit 0)
+#   MODEL EVAL (explicit lane)
+#     - Runs the seeded eval against the Local Models daemon, the engine the
+#       app uses. A down daemon or cold model fails the lane; a lane that was
+#       not requested is an explicit "skipped" (exit 0).
 #
 # Usage:
 #   ./scripts/verify.sh                    # deterministic only; skip model lane
-#   ./scripts/verify.sh --model-lane       # require shared model; fail if absent
+#   ./scripts/verify.sh --model-lane       # require a warm Local Models model
 #   ./scripts/verify.sh --skip-model       # explicit skip (deterministic only)
 #   ./scripts/verify.sh --mode=ci          # machine-readable output, no prompts
 #   ./scripts/verify.sh --json             # emit a JSON result summary on stdout
@@ -29,8 +28,7 @@ set -euo pipefail
 #
 # Exit codes:
 #   0 deterministic passed (and model lane, if requested, passed)
-#   1 deterministic failed
-#   2 deterministic passed but model lane was requested and the model is missing
+#   1 deterministic failed, or the requested model lane failed
 #   3 unknown/unsupported option
 #
 # The model-eval scoreboard failing quality thresholds still fails the gate
@@ -119,11 +117,6 @@ if [[ "${SELF_TEST:-0}" == "1" ]]; then
   exit 0
 fi
 
-# The product's normal lane is the shared Local Models registry copy. Keep the
-# legacy private `COTYPE_MODEL` path for standalone installation, but evaluate
-# what Cotype actually uses by default. CI/custom runners can override with
-# `COTYPE_EVAL_MODEL` without changing installer behavior.
-MODEL="${COTYPE_EVAL_MODEL:-$COTYPE_MODEL_SOURCE}"
 # The model-eval release gate runs the FULL seeded suite by default. Zero means
 # "no --limit", so the release gate is never reduced to a 3-case smoke. Set
 # COTYPE_EVAL_CASES to a positive n only for a deliberate smoke run.
@@ -170,29 +163,15 @@ model_code=0
 if [[ "$SKIP_MODEL" == "1" || "${COTYPE_MODEL_EVAL:-}" == "0" ]]; then
   ci_log "Model eval lane: explicitly skipped."
 elif [[ "$MODEL_LANE" == "1" || "${COTYPE_MODEL_EVAL:-}" == "1" ]]; then
-  if ! model_exists "$MODEL"; then
-    if [[ "$JSON" == "1" ]]; then
-      printf '{"lane":"model-eval","result":"missing-model","model":"%s"}\n' "$MODEL"
-    fi
-    # Deterministic passed, but the requested model lane cannot run.
-    die "Model eval lane REQUESTED but no model at: $MODEL (required model missing, not an explicit skip)."
-  fi
-  if ! model_is_valid "$MODEL"; then
-    if [[ "$JSON" == "1" ]]; then
-      printf '{"lane":"model-eval","result":"checksum-mismatch","model":"%s"}\n' "$MODEL"
-    fi
-    die "Model checksum mismatch at: $MODEL (expected $COTYPE_MODEL_SHA256)."
-  fi
   if [[ "$CASES" -gt 0 ]]; then
-    ci_log "Running model eval lane (first $CASES cases, max $MAX_TOKENS tokens)…"
-    EVAL_ARGS=(--engine llama --model "$MODEL" --limit "$CASES" --max-tokens "$MAX_TOKENS")
+    ci_log "Running model eval lane on Local Models (first $CASES cases, max $MAX_TOKENS tokens)…"
+    EVAL_ARGS=(--engine daemon --limit "$CASES" --max-tokens "$MAX_TOKENS")
   else
-    ci_log "Running model eval lane (FULL seeded suite, max $MAX_TOKENS tokens)…"
-    EVAL_ARGS=(--engine llama --model "$MODEL" --max-tokens "$MAX_TOKENS")
+    ci_log "Running model eval lane on Local Models (FULL seeded suite, max $MAX_TOKENS tokens)…"
+    EVAL_ARGS=(--engine daemon --max-tokens "$MAX_TOKENS")
   fi
   set +e
-  COTYPE_CI="$CI" swift run cotype-eval "${EVAL_ARGS[@]}" \
-    --model-repo "$COTYPE_MODEL_REPO" --model-revision "$COTYPE_MODEL_REVISION" --model-sha "$COTYPE_MODEL_SHA256"
+  COTYPE_CI="$CI" swift run cotype-eval "${EVAL_ARGS[@]}"
   eval_code=$?
   set -e
   if [[ "$eval_code" != "0" ]]; then
@@ -201,7 +180,7 @@ elif [[ "$MODEL_LANE" == "1" || "${COTYPE_MODEL_EVAL:-}" == "1" ]]; then
     model_result="pass"
   fi
 else
-  ci_log "Model eval lane: not requested; skipping. (Use --model-lane to require a model; the deterministic gate never needs one.)"
+  ci_log "Model eval lane: not requested; skipping. (Use --model-lane to run it on Local Models; the deterministic gate never needs a model.)"
 fi
 
 # ---------------------------------------------------------------------------

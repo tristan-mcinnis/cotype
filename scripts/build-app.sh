@@ -85,7 +85,7 @@ if [[ "$NOTARIZED" == "1" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Build the product FIRST so the SwiftPM artifacts (llama, Sparkle) exist on a
+# Build the product FIRST so the SwiftPM artifacts (Sparkle) exist on a
 # clean checkout before we look them up. Resolving/building before lookup is what
 # lets `./scripts/build-app.sh` (and `--info`) work from a fresh clone.
 # ---------------------------------------------------------------------------
@@ -95,7 +95,6 @@ swift build -c release --product "$COTYPE_PRODUCT"
 BINARY="$ROOT/.build/release/$COTYPE_PRODUCT"
 # Cotype targets Apple Silicon only; refuse a release bundle from a non-arm64 binary.
 require_arm64 "$BINARY"
-LLAMA_FRAMEWORK="$(find_llama_framework)"
 SPARKLE_FRAMEWORK="$(find_sparkle_framework)"
 
 if [[ "${info_mode:-0}" == "1" ]]; then
@@ -108,14 +107,11 @@ if [[ "${info_mode:-0}" == "1" ]]; then
   echo "  bundle id         : $COTYPE_BUNDLE_ID"
   echo "  build mode        : $mode"
   echo "  signing identity  : $(sign_identity_label "$SIGN_IDENTITY")"
-  echo "  llama.cpp build   : $COTYPE_LLAMA_BUILD"
-  echo "  model license     : $COTYPE_MODEL_LICENSE"
   echo "  notarized         : $([[ "$NOTARIZED" == "1" ]] && echo 'no (Developer ID release candidate; must be notarized before release)' || echo 'no (personal build)')"
   echo "  release candidate : $([[ "$NOTARIZED" == "1" ]] && echo yes || echo no)"
   echo "  sparkle feed      : $([[ "$NOTARIZED" == "1" && -n "${COTYPE_UPDATE_FEED_URL:-}" ]] && echo "${COTYPE_UPDATE_FEED_URL}" || echo 'none (not a release candidate)')"
   echo "  sparkle pub key   : $([[ "$NOTARIZED" == "1" && -n "${COTYPE_UPDATE_PUBLIC_KEY:-}" ]] && echo present || echo none)"
   echo "  architecture      : $(lipo -info "$ROOT/.build/release/$COTYPE_PRODUCT" 2>/dev/null | sed -n 's/.*: //p' || echo 'unknown')"
-  echo "  llama framework   : $LLAMA_FRAMEWORK"
   echo "  sparkle framework : $SPARKLE_FRAMEWORK"
   exit 0
 fi
@@ -129,7 +125,6 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/$COTYPE_APP_NAME"
 mkdir -p "$APP/Contents/Frameworks"
-ditto "$LLAMA_FRAMEWORK" "$APP/Contents/Frameworks/llama.framework"
 ditto "$SPARKLE_FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
 
 # Icon. The house icon family is rendered by design-system/icons/make-icon.py
@@ -201,12 +196,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CotypeBuildGitDirty</key><string>$COTYPE_GIT_DIRTY</string>
     <key>CotypeBuildDate</key><string>$COTYPE_BUILD_DATE</string>
     <key>CotypeBundleID</key><string>$COTYPE_BUNDLE_ID</string>
-    <key>CotypeLlamaBuild</key><string>$COTYPE_LLAMA_BUILD</string>
-    <key>CotypeLlamaVersion</key><string>$COTYPE_LLAMA_VERSION</string>
-    <key>CotypeLlamaLicense</key><string>$COTYPE_LLAMA_LICENSE</string>
-    <key>CotypeModelFilename</key><string>$COTYPE_MODEL_FILENAME</string>
-    <key>CotypeModelLicense</key><string>$COTYPE_MODEL_LICENSE</string>
-    <key>CotypeModelLicenseURL</key><string>$COTYPE_MODEL_LICENSE_URL</string>
     <key>CotypeSigningIdentity</key><string>$(sign_identity_label "$SIGN_IDENTITY")</string>
     <key>CotypeArchitecture</key><string>arm64</string>
     <key>CotypeNotarized</key><false/>
@@ -240,7 +229,7 @@ fi
 [[ -f "$ROOT/PRIVACY.md" ]] && cp "$ROOT/PRIVACY.md" "$APP/Contents/Resources/Cotype-Privacy.md"
 
 # ---------------------------------------------------------------------------
-# rpath so the embedded llama.framework resolves.
+# rpath so the embedded Sparkle.framework resolves.
 # ---------------------------------------------------------------------------
 if ! otool -l "$APP/Contents/MacOS/$COTYPE_APP_NAME" | grep -q '@executable_path/../Frameworks'; then
   install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP/Contents/MacOS/$COTYPE_APP_NAME"
@@ -258,7 +247,6 @@ fi
 # XPC services inside the framework, so those are signed first, then the
 # framework, then the app — the order Sparkle requires for a proper signature
 # chain.
-codesign "${SIGN_ARGS[@]}" "$APP/Contents/Frameworks/llama.framework"
 SPARKLE_BUNDLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/Current"
 if [[ -d "$SPARKLE_BUNDLE/Updater.app" ]]; then
   codesign "${SIGN_ARGS[@]}" "$SPARKLE_BUNDLE/Updater.app"

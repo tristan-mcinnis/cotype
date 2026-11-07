@@ -48,10 +48,6 @@ final class WebsiteRulesControllerTests: XCTestCase {
         if let globalPrompt { defaults.set(globalPrompt, forKey: "systemPrompt") }
         let inserter = RecordingInserter()
         let controller = CompletionController(
-            engineManager: EngineManager(
-                modelPathOverride: "/fake/model.gguf",
-                engineFactory: { _ in MockClosableEngine() }
-            ),
             personalization: makePersonalizationStore(),
             overrides: overrides,
             websiteRules: rules,
@@ -250,10 +246,6 @@ final class WebsiteRulesControllerTests: XCTestCase {
         // A provider that would answer with a host even for a non-browser; the
         // controller must not ask it, because the app is not a browser.
         let controller = CompletionController(
-            engineManager: EngineManager(
-                modelPathOverride: "/fake/model.gguf",
-                engineFactory: { _ in MockClosableEngine() }
-            ),
             personalization: makePersonalizationStore(),
             overrides: AppOverridesStore(fileURL: tempFileURL("nonbrowser-overrides")),
             websiteRules: rules,

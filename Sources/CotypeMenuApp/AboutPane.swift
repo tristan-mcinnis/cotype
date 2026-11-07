@@ -10,7 +10,6 @@ import HouseUIKit
 // MARK: - About
 
 struct AboutPane: View {
-    @ObservedObject var engineManager: EngineManager
     @ObservedObject var updater: SparkleUpdateController
     @State private var notarization: NotarizationStatus?
 
@@ -21,13 +20,9 @@ struct AboutPane: View {
                     AppMark(symbol: "text.cursor", name: "Cotype", caption: "Version \(Self.version)")
                 }
                 SlateDivider()
-                StatRow(title: "Engine", value: "llama.cpp \(Self.info("CotypeLlamaBuild", "b10665"))")
+                StatRow(title: "Engine", value: "Local Models")
                 SlateDivider()
-                StatRow(title: "Model", value: engineManager.modelPath.map { ($0 as NSString).lastPathComponent } ?? "Not installed")
-                SlateDivider()
-                StatRow(title: "Model license", value: Self.info("CotypeModelLicense", "Apache-2.0"))
-                SlateDivider()
-                StatRow(title: "Local inference", value: "Metal")
+                StatRow(title: "Model", value: DaemonRoutedEngine.configuredModel())
                 SlateDivider()
                 StatRow(title: "Build mode", value: Self.buildMode)
                 SlateDivider()
@@ -57,7 +52,7 @@ struct AboutPane: View {
             }
             SettingsCard(title: "Credits") {
                 SlateBlock {
-                    SlateProse("Built on llama.cpp and the Cotype pipeline. An open, local AI completion app for macOS.")
+                    SlateProse("Built on Local Models and the Cotype pipeline. A local AI completion app for macOS.")
                     if notarization?.notarized == true {
                         SlateProse("This is a notarized Developer ID build with Hardened Runtime, safe for public distribution.")
                     } else {

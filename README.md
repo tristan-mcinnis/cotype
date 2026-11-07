@@ -21,11 +21,9 @@ and relaunches. Model weights are not copied because Local Models owns them:
 ./scripts/install.sh             # install (default)
 ./scripts/install.sh reinstall   # robust, idempotent reinstall (same as default)
 ./scripts/install.sh repair      # rebuild + reinstall + verify
-./scripts/install.sh uninstall   # stop + remove the app (keeps settings/model)
+./scripts/install.sh uninstall   # stop + remove the app (keeps settings)
 
 ./scripts/install.sh --no-relaunch          # install without opening the app
-./scripts/install.sh --with-in-process-model # optional legacy standalone copy
-./scripts/install.sh --require-model         # require that legacy fallback copy
 ```
 
 The installed app is a normal app bundle at `~/Applications/Cotype.app` (override
@@ -42,11 +40,7 @@ SHA-256 `740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8`.
 Cotype connects to the daemon-managed llama-server at
 `http://127.0.0.1:8079/v1`. Use the **Local Models** menu bar to warm or unload
 `gemma-it`. Cotype Setup reports the daemon and warm-model state but does not
-download or duplicate the weights.
-
-The older in-process llama.cpp engine remains as an explicit standalone fallback.
-`--with-in-process-model` copies a verified model into Cotype's Application
-Support directory; normal installs do not use this lane.
+download or duplicate the weights. Cotype has no model of its own.
 
 ### First-launch permissions
 
@@ -167,14 +161,13 @@ Trigger → Context → Prompt → Inference → Render → Insert
 | Trigger | `TriggerProvider` | menu + global `CGEventTap` in the app |
 | Context | `ContextProvider` | `StaticContextProvider`, `AXTextContextProvider` |
 | Prompt | `PromptBuilder` | `TemplatePromptBuilder` with contextual infill |
-| Inference | `InferenceEngine` | Local Models daemon SSE, mock, legacy in-process llama.cpp + Metal |
+| Inference | `InferenceEngine` | Local Models daemon SSE, mock |
 | Render | `CompletionRenderer` | print/no-op, `GhostTextRenderer` |
 | Insert | `CompletionInserter` | direct Accessibility insertion via `CompletionInsertionRouter`, with guarded clipboard fallback |
 
 `CompletionPipeline.events` emits observability events at every stage boundary.
 Cotype reads `gemma-it` readiness from the Local Models control-plane registry
-and streams from its daemon-managed llama-server. The legacy standalone engine
-remains concurrency-guarded and cancellation-aware for explicit fallback use.
+and streams from its daemon-managed llama-server.
 
 ## Build, test, and evaluate
 
@@ -183,7 +176,7 @@ swift build
 swift test
 ./scripts/build-app.sh            # build + sign + version-stamp dist/Cotype.app
 ./scripts/build-app.sh --info     # print resolved version/signing/framework metadata
-./scripts/diagnostics.sh          # safe version/model/hash/permissions report
+./scripts/diagnostics.sh          # safe version/model/permissions report
 ```
 
 ### verify.sh — deterministic gate vs. the model lane
@@ -192,14 +185,14 @@ swift test
 
 - **Deterministic (always required):** `swift build` + `swift test` + app-bundle
   construction/validation. Failure exits non-zero.
-- **Model eval (explicit, model-equipped):** runs a real GGUF eval. There is a
-  strict distinction: if you **request** the lane (`--model-lane`) but the model
-  is missing, it **fails** (never silently passes); if you **don't request** it,
-  it reports "skipped" and exits 0. The deterministic gate never needs a model.
+- **Model eval (explicit):** runs the seeded eval against the Local Models
+  daemon. If you **request** the lane (`--model-lane`) and the daemon is down
+  or the model is cold, it **fails**; if you **don't request** it, it reports
+  "skipped" and exits 0. The deterministic gate never needs a model.
 
 ```bash
 ./scripts/verify.sh                 # deterministic; model lane skipped
-./scripts/verify.sh --model-lane    # require a model; fail if absent
+./scripts/verify.sh --model-lane    # require a warm Local Models model
 ./scripts/verify.sh --skip-model    # deterministic only
 ./scripts/verify.sh --mode=ci --json  # machine-readable output for CI
 ```
@@ -239,8 +232,7 @@ plus an opt-in **model-eval** job and a **release-package** job on
 ## Licensing and release
 
 - **Cotype itself: all rights reserved. No public license is granted.** Only
-  third-party components are covered by their own licenses (llama.cpp and
-  Sparkle are MIT; the Gemma model is released under **Apache-2.0**). See
+  third-party components are covered by their own licenses (Sparkle is MIT). See
   [`docs/licenses.md`](docs/licenses.md) and the bundled notices under
   `docs/licenses/`.
 - A privacy notice lives at [`PRIVACY.md`](PRIVACY.md) and is bundled
@@ -270,14 +262,13 @@ so the updater is inert.
 ## Diagnostics
 
 `./scripts/diagnostics.sh` reports version/build, git commit, signing identity,
-llama.cpp build, model path/size/hash, and permission preflight status. It emits
+the Local Models model alias, and permission preflight status. It emits
 **no sensitive content** — it never reads document text, clipboard contents, or
 stored samples.
 
 ```bash
 ./scripts/diagnostics.sh                 # text
 ./scripts/diagnostics.sh --format json   # machine-readable
-./scripts/diagnostics.sh --hash          # include the model SHA-256
 ./scripts/diagnostics.sh --out report.txt
 ```
 
@@ -335,5 +326,3 @@ Per-app settings live at:
 ```text
 ~/Library/Application Support/Cotype/app-overrides.json
 ```
-
-See `docs/llama-cpp-integration.md` for the pinned XCFramework integration.

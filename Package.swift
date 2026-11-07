@@ -26,7 +26,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "CotypeUpdateCore"),
-        .target(name: "CotypeCore", dependencies: ["llama"]),
+        .target(name: "CotypeCore"),
         .target(name: "CotypeEval", dependencies: ["CotypeCore"]),
         .target(name: "CotypeMacOS", dependencies: ["CotypeCore", .product(name: "HouseDesign", package: "design-system")]),
         .executableTarget(name: "CotypeUpdate", dependencies: ["CotypeUpdateCore"]),
@@ -50,10 +50,5 @@ let package = Package(
             .product(name: "HouseDesign", package: "design-system"),
             .product(name: "HouseUIKit", package: "design-system"),
         ]),
-        .binaryTarget(
-            name: "llama",
-            url: "https://github.com/ggml-org/llama.cpp/releases/download/b10665/llama-b10665-xcframework.zip",
-            checksum: "44cd51d0f61cd966f5f9ec3d89a9198ec730291a11f098406f7284811d4c4201"
-        ),
     ]
 )

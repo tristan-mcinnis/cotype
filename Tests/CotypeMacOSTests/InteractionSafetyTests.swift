@@ -283,56 +283,6 @@ final class CompletionFlowTests: XCTestCase {
     }
 }
 
-// MARK: - EngineLifecycle (load/unload waits and races)
-
-final class EngineLifecycleTests: XCTestCase {
-    func testBeginLoadStartsOnlyOnce() {
-        var lc = EngineLifecycle()
-        XCTAssertTrue(lc.beginLoad())
-        XCTAssertEqual(lc.status, .loading)
-        // Second load while loading is a no-op.
-        XCTAssertFalse(lc.beginLoad())
-    }
-
-    func testFinishLoadReadySetsLoaded() {
-        var lc = EngineLifecycle()
-        _ = lc.beginLoad()
-        lc.finishLoad(success: true)
-        XCTAssertEqual(lc.status, .ready)
-        XCTAssertTrue(lc.hasLoadedEngine)
-        XCTAssertFalse(lc.beginLoad()) // loaded -> no-op
-    }
-
-    func testUnloadRefusesWhenBusy() {
-        var lc = EngineLifecycle()
-        _ = lc.beginLoad()
-        lc.finishLoad(success: true)
-        XCTAssertFalse(lc.unload(allow: false)) // busy -> refuse
-        XCTAssertEqual(lc.status, .ready)        // still loaded
-        XCTAssertTrue(lc.unload(allow: true))
-        XCTAssertEqual(lc.status, .idle)
-        XCTAssertFalse(lc.hasLoadedEngine)
-    }
-
-    func testUnloadBumpsVersionInvalidatingWaiters() {
-        var lc = EngineLifecycle()
-        _ = lc.beginLoad()
-        let v1 = lc.loadVersion
-        _ = lc.unload(allow: true)
-        XCTAssertGreaterThan(lc.loadVersion, v1)
-        XCTAssertTrue(lc.isStale(v1))
-    }
-
-    func testWaiterBookkeeping() {
-        var lc = EngineLifecycle()
-        lc.addWaiter()
-        lc.addWaiter()
-        XCTAssertEqual(lc.waiterCount, 2)
-        lc.setWaiters(0)
-        XCTAssertEqual(lc.waiterCount, 0)
-    }
-}
-
 // MARK: - TriggerShortcut
 
 final class TriggerShortcutTests: XCTestCase {

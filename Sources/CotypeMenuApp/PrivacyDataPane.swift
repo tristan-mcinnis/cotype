@@ -97,7 +97,7 @@ struct PrivacyDataPane: View {
                 SlateBlock {
                     SlateProse("Cotype reads up to 2,000 characters on each side of the caret in the current field to predict the next few words. If you turn on Visible active-window text, it also reads up to 800 characters of other text in the same window. This context is used in memory for the current prompt and is not stored. The prompt goes only over loopback HTTP to Local Models; non-local endpoints are rejected.")
                     SlateProse("Feedback about a completion (prefix and candidate) is stored only if you turn on Feedback storage. It is written to your local Application Support folder and is never uploaded. You can export or delete it at any time.")
-                    SlateProse("Cotype has no analytics or telemetry. Internet access occurs only for a standalone model download you explicitly start and, in release builds, update checks you start or enable.", tertiary: true)
+                    SlateProse("Cotype has no analytics or telemetry. Internet access occurs only, in release builds, for update checks you start or enable.", tertiary: true)
                 }
             }
 

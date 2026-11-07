@@ -118,118 +118,15 @@ struct ModelInfoRow: View {
     }
 }
 
-/// Shows the installed model's status, path, size, and a Reveal-in-Finder plus
-/// a Load/Unload control. Shared by the Setup and General panes.
-///
-/// The load state and the action button are deliberately coupled so the copy is
-/// unambiguous: the status text names exactly what is happening and the button
-/// label names exactly what it will do.
+/// The Local Models status card with its own monitor. Shared by the Setup
+/// and General panes.
 struct ModelStatusRow: View {
-    @ObservedObject var engineManager: EngineManager
-    @AppStorage(DaemonRoutedEngine.enabledKey) private var useDaemon = true
     @StateObject private var localModels = LocalModelsMonitor()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SlateRow(
-                title: "Use the Local Models menu bar",
-                detail: useDaemon
-                    ? "Local Models owns the registry, weights, and load/unload lifecycle. Cotype streams from its warm completion model without making another copy."
-                    : "Legacy standalone mode loads a private model inside Cotype. Use this only when Local Models is unavailable."
-            ) {
-                InkSwitch(isOn: $useDaemon)
-            }
-            SlateDivider()
-
-            if useDaemon {
-                LocalModelsStatusCard(monitor: localModels)
-            } else {
-                SlateRow(title: statusText) {
-                    statusBadge
-                }
-
-                if let path = engineManager.modelPath {
-                    SlateDivider()
-                    SlateBlock {
-                        SlateInfoRow(title: "Model file", value: (path as NSString).lastPathComponent)
-                        SlateInfoRow(title: "Size", value: formatFileSize(engineManager.modelSize))
-                        SlateInfoRow(title: "Location", value: path)
-                        Button("Reveal in Finder") { Self.revealInFinder(path) }
-                            .buttonStyle(HouseLinkButtonStyle())
-                    }
-                } else {
-                    SlateDivider()
-                    SlateBlock {
-                        SlateProse("No standalone model is available.", tertiary: true)
-                    }
-                }
-
-                SlateDivider()
-                SlateRow {
-                    loadButton
-                }
-            }
-        }
-        .onAppear { localModels.start() }
-        .onDisappear { localModels.stop() }
-    }
-
-    @ViewBuilder
-    private var loadButton: some View {
-        switch engineManager.status {
-        case .idle:
-            Button("Load Model") { engineManager.loadIfNeeded() }
-                .buttonStyle(HouseChipButtonStyle())
-                .disabled(engineManager.isBusy)
-        case .loading:
-            Button("Loading…") {}
-                .buttonStyle(HouseChipButtonStyle())
-                .disabled(true)
-        case .ready:
-            Button("Unload Model") { engineManager.unload() }
-                .buttonStyle(HouseChipButtonStyle())
-                .disabled(engineManager.isBusy)
-        case .failed:
-            if engineManager.modelPath == nil {
-                Button("Install the model in Setup") {}
-                    .buttonStyle(HouseChipButtonStyle())
-                    .disabled(true)
-            } else {
-                Button("Retry Load") { engineManager.loadIfNeeded() }
-                    .buttonStyle(HouseChipButtonStyle())
-                    .disabled(engineManager.isBusy)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var statusBadge: some View {
-        switch engineManager.status {
-        case .idle:
-            StatusPill(text: "Not loaded", tint: House.ColorToken.textTertiary)
-        case .loading:
-            ProgressView().controlSize(.small)
-        case .ready:
-            StatusPill(text: "Ready", tint: House.ColorToken.success)
-        case .failed:
-            StatusPill(text: "Failed", tint: House.ColorToken.danger)
-        }
-    }
-
-    private var statusText: String {
-        switch engineManager.status {
-        case .idle: return "Not loaded — it loads automatically on the first completion"
-        case .loading: return "Loading model…"
-        case .ready: return "Ready"
-        case .failed(let message):
-            return engineManager.modelPath == nil
-                ? "No model installed — complete Setup to download it"
-                : "Failed to load: \(message)"
-        }
-    }
-
-    static func revealInFinder(_ path: String) {
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        LocalModelsStatusCard(monitor: localModels)
+            .onAppear { localModels.start() }
+            .onDisappear { localModels.stop() }
     }
 }
 

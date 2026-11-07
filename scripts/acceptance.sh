@@ -62,12 +62,8 @@ fi
 echo "== T2: real-model quality gate (unchanged thresholds)"
 if [[ "$SKIP_GATE" == "1" ]]; then
   record T2 SKIP "skipped by flag"
-elif ! model_exists "$COTYPE_MODEL_SOURCE"; then
-  record T2 FAIL "model missing at $COTYPE_MODEL_SOURCE"
 else
-  swift run cotype-eval --engine llama --model "$COTYPE_MODEL_SOURCE" --max-tokens 32 \
-    --model-repo "$COTYPE_MODEL_REPO" --model-revision "$COTYPE_MODEL_REVISION" \
-    --model-sha "$COTYPE_MODEL_SHA256" >"$OUT/gate.log" 2>&1
+  swift run cotype-eval --engine daemon --max-tokens 32 >"$OUT/gate.log" 2>&1
   code=$?
   valid="$(grep -E '^valid rate:' "$OUT/gate.log" | awk '{print $3}')"
   forbidden="$(grep -E '^forbidden:' "$OUT/gate.log" | awk '{print $2}')"

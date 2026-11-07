@@ -85,12 +85,12 @@ final class NotShownStoreTests: XCTestCase {
     func testFileShapeCarriesOnlyReasonsCountsBundleIDsAndTimestamps() throws {
         let writer = RecordingWriter()
         let store = makeStore(writer: writer)
-        store.record(.noModel, appIdentifier: "org.telegram.desktop")
+        store.record(.noFocusedEditor, appIdentifier: "org.telegram.desktop")
         store.flush()
 
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(writer.last)) as? [String: Any])
         XCTAssertEqual(Set(object.keys), ["schemaVersion", "updatedAt", "total", "perApp"])
-        let entry = try XCTUnwrap(((object["perApp"] as? [String: Any])?["org.telegram.desktop"] as? [String: Any])?["noModel"] as? [String: Any])
+        let entry = try XCTUnwrap(((object["perApp"] as? [String: Any])?["org.telegram.desktop"] as? [String: Any])?["noFocusedEditor"] as? [String: Any])
         XCTAssertEqual(Set(entry.keys), ["count", "lastSeen"])
     }
 
@@ -130,7 +130,7 @@ final class NotShownStoreTests: XCTestCase {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url) }
         let store = makeStore(url: url)
-        store.record(.noModel, appIdentifier: "a.b")
+        store.record(.noFocusedEditor, appIdentifier: "a.b")
         store.flush()
         store.reset()
         XCTAssertEqual(store.snapshot.totalCount, 0)
@@ -139,10 +139,10 @@ final class NotShownStoreTests: XCTestCase {
 
     func testTopReasonsOrderByCount() {
         let store = makeStore()
-        store.record(.noModel, appIdentifier: "a.b")
+        store.record(.noFocusedEditor, appIdentifier: "a.b")
         store.record(.noCaretGeometry, appIdentifier: "a.b")
         store.record(.noCaretGeometry, appIdentifier: "a.b")
-        XCTAssertEqual(store.snapshot.ranked.map(\.key), ["noCaretGeometry", "noModel"])
+        XCTAssertEqual(store.snapshot.ranked.map(\.key), ["noCaretGeometry", "noFocusedEditor"])
     }
 
     func testEveryReasonHasATitleAndAUniqueRawValue() {

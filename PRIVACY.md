@@ -172,9 +172,7 @@ reset your retention/exclusion preferences, app overrides or website rules.
 - The battery and Low Power Mode policy only stops Cotype from starting
   automatic generations. It sends nothing, reads no new data, and never unloads
   or restarts the shared Local Models daemon.
-- Local Models owns normal model acquisition. A model download from Cotype occurs
-  only if you explicitly select the legacy standalone lane and start it in Setup;
-  Cotype verifies that file's SHA-256 digest locally before use.
+- Local Models owns model acquisition. Cotype never downloads a model.
 - If the installed release has an update feed, **Check for Updates** contacts
   that feed. Automatic update checks occur only when you enable them. Cotype
   disables Sparkle's system-profile reporting and automatic downloads. Sparkle

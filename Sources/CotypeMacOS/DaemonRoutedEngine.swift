@@ -1,16 +1,14 @@
 import Foundation
 import CotypeCore
 
-/// Production engine router for the Local Models system.
+/// Cotype's completion settings for the Local Models system.
 ///
-/// When daemon mode is enabled, Cotype asks the loopback control plane for the
-/// configured model alias and streams from the warm endpoint advertised by the
-/// registry. The control plane and advertised completion endpoint must both be
-/// loopback URLs. There is deliberately no silent failover: a down daemon, cold
-/// model, bad registry response, or unsafe endpoint surfaces as an error instead
-/// of loading the multi-GB in-process model behind the user's back.
-public struct DaemonRoutedEngine: InferenceEngine {
-    public static let enabledKey = "useLocalModelsDaemon"
+/// Cotype asks the loopback control plane for the configured model alias and
+/// streams from the warm endpoint advertised by the registry. The control
+/// plane and advertised completion endpoint must both be loopback URLs. A down
+/// daemon, cold model, bad registry response, or unsafe endpoint surfaces as
+/// an error.
+public enum DaemonRoutedEngine {
     /// Retained only so old preferences can be identified/removed. Streaming no
     /// longer trusts this hidden value; the Local Models registry is authoritative.
     public static let endpointKey = "localModelsDaemonEndpoint"
@@ -19,45 +17,20 @@ public struct DaemonRoutedEngine: InferenceEngine {
     /// `TokenBudget` decides whether it applies at all.
     public static let maxTokensKey = TokenBudget.explicitValueKey
     public static let temperatureKey = "temperature"
-    public static let defaultEndpoint = "http://127.0.0.1:8079/v1"
     public static let defaultModel = "gemma-it"
 
-    public let name = "daemon-routed"
-    private let fallback: InferenceEngine
-    private let defaults: UserDefaults
-
-    public init(fallback: InferenceEngine, defaults: UserDefaults = .standard) {
-        self.fallback = fallback
-        self.defaults = defaults
-    }
-
-    /// The registry-routed daemon engine, or nil only when daemon mode is off.
-    /// Enabled mode always returns an engine so invalid/down daemon state cannot
-    /// silently fall through to the in-process fallback.
-    public static func daemonEngine(defaults: UserDefaults = .standard) -> LocalModelsCompletionEngine? {
-        guard defaults.bool(forKey: enabledKey) else { return nil }
-        let model = defaults.string(forKey: modelKey) ?? defaultModel
+    /// The registry-routed daemon engine for the current settings.
+    public static func daemonEngine(defaults: UserDefaults = .standard) -> LocalModelsCompletionEngine {
         // One policy decides the budget for every lane; the Settings pane shows
         // exactly this number.
         let maxTokens = TokenBudget.effective(defaults).tokens
         let temperature = defaults.object(forKey: temperatureKey) as? Double ?? OpenAICompatibleEngine.defaultTemperature
-        return LocalModelsCompletionEngine(modelAlias: model, maxTokens: maxTokens, temperature: temperature)
+        return LocalModelsCompletionEngine(modelAlias: configuredModel(defaults: defaults), maxTokens: maxTokens, temperature: temperature)
     }
 
     /// The model alias Cotype is configured to complete with.
     public static func configuredModel(defaults: UserDefaults = .standard) -> String {
         defaults.string(forKey: modelKey) ?? defaultModel
-    }
-
-    public static func isDaemonMode(defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: enabledKey)
-    }
-
-    public func stream(prompt: Prompt) -> AsyncThrowingStream<CompletionEvent, Error> {
-        if let daemon = Self.daemonEngine(defaults: defaults) {
-            return daemon.stream(prompt: prompt)
-        }
-        return fallback.stream(prompt: prompt)
     }
 }
 

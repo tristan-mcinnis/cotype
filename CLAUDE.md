@@ -10,8 +10,8 @@ window text when the user turns that on), asks the local model for the next
 few words (the Suggestion length setting: 1-4, 3-6, or the rest of the
 sentence up to 16), shows them as ghost text, and inserts them only when
 accepted. The local-models daemon owns the registry, weights, and load/unload
-lifecycle; the Local Models menu bar is its face. Cotype keeps no second model
-in memory unless the legacy in-process fallback is installed on purpose.
+lifecycle; the Local Models menu bar is its face. Cotype holds no model of
+its own.
 
 The product name is always **Cotype** in user-facing copy. Technical identifiers:
 
@@ -51,7 +51,7 @@ default engine; Launch at Login as a real registration; no telemetry.
 - `swift build` and `swift test` from the repository root.
 - `./scripts/build-app.sh` builds, signs, and version-stamps `dist/Cotype.app`.
 - `./scripts/install.sh` installs and relaunches; `./scripts/verify.sh` is the
-  deterministic gate (`--model-lane` when a model must be present).
+  deterministic gate (`--model-lane` runs the eval on a warm Local Models model).
 - `./scripts/diagnostics.sh` prints a safe version, model, and permissions report.
 - Release: `docs/RELEASE.md` (Sparkle appcast, notarization).
 

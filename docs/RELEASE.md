@@ -11,7 +11,7 @@ step that never runs unless the credentials are actually present on the machine.
   e.g. CI). **Not notarized** and **not Developer ID-signed** unless you opt in.
 - **Licensing: all rights reserved. No public license is granted** by this
   repository for Cotype itself in this personal-ready pass. Only third-party
-  components carry their own licenses (llama.cpp is MIT; the Gemma model is released under Apache-2.0). See [`licenses.md`](licenses.md).
+  components carry their own licenses (Sparkle is MIT). See [`licenses.md`](licenses.md).
 - **Gatekeeper** rejects the personal build (`spctl -a -vvv -t exec` -> rejected)
   because it is not notarized. This is expected and NOT a defect.
 - **Apps it is installed to:** `~/Applications/Cotype.app`.
@@ -32,27 +32,23 @@ step that never runs unless the credentials are actually present on the machine.
 ./scripts/build-app.sh          # builds dist/Cotype.app (signed, version-stamped)
 ./scripts/install.sh            # build, quit running Cotype, install, relaunch, verify
 ./scripts/install.sh reinstall  # robust idempotent reinstall
-./scripts/install.sh uninstall  # remove the app (leaves settings/model intact)
+./scripts/install.sh uninstall  # remove the app (leaves settings intact)
 ./scripts/verify.sh             # deterministic tests; skips the model lane by default
-./scripts/verify.sh --model-lane  # run the model eval lane (requires the model; fails if absent)
-./scripts/diagnostics.sh        # version/model/hash/permissions report (no sensitive content)
+./scripts/verify.sh --model-lane  # run the model eval lane on Local Models (fails if cold or down)
+./scripts/diagnostics.sh        # version/model/permissions report (no sensitive content)
 ```
 
 `./scripts/install.sh`:
 - Builds the app bundle.
-- Installs Cotype as a thin client of the Local Models daemon. It does not copy
-  the shared Gemma weights by default.
+- Installs Cotype as a thin client of the Local Models daemon. It copies no
+  model weights.
 - **Quits any running Cotype** first (graceful, then SIGTERM/SIGKILL), replaces
   the bundle, and **relaunches** it.
 - Verifies `codesign`, the `rpath`, and the `Info.plist` after install.
 - Reports **preflight** permission status (Accessibility / Input Monitoring /
   event posting) read-only; it never grants or bypasses TCC.
 
-The optional legacy standalone lane uses
-`$HOME/Models/gguf/gemma-4-E2B-it-Q4_K_M.gguf` as its source. Pass
-`--with-in-process-model` to install a private Cotype copy, or `--require-model`
-to make that copy mandatory. Normal installs manage `gemma-it` through the
-Local Models menu bar.
+The Local Models menu bar manages `gemma-it`.
 
 ## Version stamping
 
@@ -60,8 +56,7 @@ Local Models menu bar.
 - `CFBundleVersion` = git commit count (a stable-ish build number).
 - Info.plist also carries `CotypeBuildMode`, `CotypeBuildGitCommit`,
   `CotypeBuildGitCommitLong`, `CotypeBuildDate`, `CotypeBundleID`,
-  `CotypeLlamaBuild`, `CotypeLlamaVersion`, `CotypeLlamaLicense`,
-  `CotypeModelLicense`, `CotypeModelLicenseURL`, `CotypeSigningIdentity`,
+  `CotypeSigningIdentity`,
   `CotypeArchitecture` (always `arm64`), `CotypeNotarized` (always `false` at
   build time), `CotypeReleaseCandidate` (`true` only for a `--notarize` build),
   and — for a release-candidate build only — `SUFeedURL` and `SUPublicEDKey`.
@@ -79,11 +74,8 @@ build alike.
 - **build-test** (every PR / push): debug + release build, full deterministic
   test suite, app-bundle build + validation, `verify.sh` (deterministic, model
   lane explicitly skipped), and a no-model diagnostics smoke run.
-- **model-eval** (opt-in, `workflow_dispatch`, model-equipped runner): runs
-  `verify.sh --model-lane`, which **fails** if the pinned model is absent rather
-  than silently passing. This is the "required model vs explicit skip"
-  distinction: the deterministic gate never needs a model; the eval lane always
-  does.
+- The model eval lane (`verify.sh --model-lane`) needs a warm Local Models
+  model, so it runs on a Mac with the daemon, not in CI.
 
 ## Opt-in Developer ID + Notarization release path
 
@@ -240,8 +232,7 @@ you repackage the same bundle ID.
 - It does **not** grant, exercise, or bypass macOS TCC permissions. Install only
   reports preflight status and opens System Settings.
 - It does **not** claim notarization or Developer ID signing for personal builds.
-- It does **not** ship model weights. The model must be provided locally (or
-  acquired in-app once the downloader is wired, see the production-readiness plan).
+- It does **not** ship model weights. Local Models provides the model.
 - It does **not** implement public-distribution readiness (P0 product blockers
   such as default-off feedback storage, output sanitization, shortcut handling,
   in-app model acquisition). See `docs/production-readiness-plan.md`.
@@ -252,7 +243,7 @@ Run from `docs/production-readiness-plan.md` §CI and §Release. In summary:
 
 - [ ] P0 product blockers closed (sanitizer, defaults, shortcut, model download).
 - [ ] Deterministic CI green.
-- [ ] `verify.sh --model-lane` green against a pinned model hash running the **full seeded suite** (not a 3-case smoke).
+- [ ] `verify.sh --model-lane` green on Local Models running the **full seeded suite** (not a 3-case smoke).
 - [ ] Developer ID + Hardened Runtime + notarization + staple verified; `CotypeNotarized=true` reported truthfully.
 - [ ] Versioned artifact (zip/dmg) with checksum, release notes, and a **signed** `update-manifest.json`.
 - [ ] Release monotonicity enforced (version never downgrades; build number strictly advances); artifact is arm64.

@@ -116,7 +116,6 @@ struct SettingsRow<Control: View>: View {
 /// sunken ground, a 60 px pane header, cards on the window ground, and a
 /// footer well.
 struct SettingsView: View {
-    @ObservedObject var engineManager: EngineManager
     @ObservedObject var completionController: CompletionController
     let personalization: PersonalizationStore
     let overrides: AppOverridesStore
@@ -128,7 +127,6 @@ struct SettingsView: View {
     @StateObject private var localModels = LocalModelsMonitor()
 
     init(
-        engineManager: EngineManager,
         completionController: CompletionController,
         personalization: PersonalizationStore,
         overrides: AppOverridesStore,
@@ -136,7 +134,6 @@ struct SettingsView: View {
         updater: SparkleUpdateController,
         initialSection: SettingsSection = .setup
     ) {
-        self.engineManager = engineManager
         self.completionController = completionController
         self.personalization = personalization
         self.overrides = overrides
@@ -222,13 +219,13 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: House.Spacing.xl) {
                     switch selection {
                     case .setup:
-                        SetupPane(engineManager: engineManager)
+                        SetupPane()
                     case .general:
-                        GeneralPane(engineManager: engineManager, completionController: completionController)
+                        GeneralPane(completionController: completionController)
                     case .context:
                         ContextPane()
                     case .personalization:
-                        PersonalizationPane(store: personalization, engineManager: engineManager)
+                        PersonalizationPane(store: personalization)
                     case .shortcuts:
                         ShortcutsPane()
                     case .appSettings:
@@ -238,7 +235,7 @@ struct SettingsView: View {
                     case .privacyData:
                         PrivacyDataPane(store: personalization, completionController: completionController)
                     case .about:
-                        AboutPane(engineManager: engineManager, updater: updater)
+                        AboutPane(updater: updater)
                     case .contactSupport:
                         ContactSupportPane()
                     }

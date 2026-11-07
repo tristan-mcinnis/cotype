@@ -47,76 +47,6 @@ final class OutputSanitizerTests: XCTestCase {
         XCTAssertEqual(outcome.text, "hello")
     }
 
-    // MARK: - Streaming guard: partial delimiters never leak
-
-    func testStreamingGuardNeverLeaksControlTokenSplitAcrossTokens() {
-        var streamGuard = StreamingOutputGuard()
-        var emitted = ""
-        // A model emitting '<|turn>' as eight separate tokens must never leak '<|turn'.
-        let pieces = ["<", "|", "t", "u", "r", "n", ">"]
-        for piece in pieces {
-            emitted += streamGuard.append(piece)
-        }
-        XCTAssertEqual(emitted, "")
-        XCTAssertTrue(streamGuard.isStopped)
-    }
-
-    func testStreamingGuardNeverLeaksReverseDelimiterSplitAcrossTokens() {
-        var streamGuard = StreamingOutputGuard()
-        var emitted = ""
-        for piece in ["<", "t", "u", "r", "n", "|", ">"] {
-            emitted += streamGuard.append(piece)
-        }
-        XCTAssertEqual(emitted, "")
-        XCTAssertTrue(streamGuard.isStopped)
-    }
-
-    func testStreamingGuardNeverLeaksStopSequenceSplitAcrossTokens() {
-        var streamGuard = StreamingOutputGuard()
-        var emitted = ""
-        for piece in ["\n", "\n"] {
-            emitted += streamGuard.append(piece)
-        }
-        XCTAssertEqual(emitted, "")
-        XCTAssertTrue(streamGuard.isStopped)
-    }
-
-    func testStreamingGuardFlushesLegitimatePrefix() {
-        var streamGuard = StreamingOutputGuard()
-        XCTAssertEqual(streamGuard.append("a + b"), "")
-        XCTAssertEqual(streamGuard.finish(), "a + b")
-    }
-
-    func testStreamingGuardFlushesLegitimateTrailingNewline() {
-        // A single trailing newline is legitimate content; only a full "\n\n"
-        // is a stop. The guard must not strip the lone newline.
-        var streamGuard = StreamingOutputGuard()
-        XCTAssertEqual(streamGuard.append("hello\n"), "")
-        XCTAssertEqual(streamGuard.finish(), "hello\n")
-    }
-
-    func testStreamingGuardFlushesLegitimateLessThanInCode() {
-        var streamGuard = StreamingOutputGuard()
-        XCTAssertEqual(streamGuard.append("if a < b"), "")
-        XCTAssertEqual(streamGuard.finish(), "if a < b")
-    }
-
-    func testStreamingGuardKeepsForegroundThenFlushesOnStop() {
-        var streamGuard = StreamingOutputGuard()
-        // More than the boundary window so the guard can emit the safe front.
-        let long = String(repeating: "x", count: 40) + "<|turn>"
-        var emitted = ""
-        for piece in [long] {
-            emitted += streamGuard.append(piece)
-        }
-        // The safe front is emitted; the control token is never emitted.
-        XCTAssertTrue(emitted.hasPrefix(String(repeating: "x", count: 40)))
-        XCTAssertFalse(emitted.contains("<|turn>"))
-        XCTAssertTrue(streamGuard.isStopped)
-    }
-
-    // MARK: - Prompt echo suppression (no naive over-stripping)
-
     func testSanitizerStripsFullPromptEcho() {
         let promptTail = "func add(a: Int, b: Int) -> Int {\n    return "
         let outcome = OutputSanitizer().process(promptTail + "a + b", promptTail: promptTail)
@@ -313,17 +243,5 @@ final class OutputSanitizerTests: XCTestCase {
         XCTAssertTrue(OutputSanitizer.Config.gemmaControlTokens.contains("<|turn>"))
         XCTAssertTrue(OutputSanitizer.Config.gemmaStructuralPrefixes.contains("<|channel"))
         XCTAssertTrue(OutputSanitizer.Config.defaultStopSequences.contains("```"))
-    }
-
-    // MARK: - streaming boundary config is consistent with sanitizer
-
-    func testStreamingGuardAndSanitizerAgreeOnBoundary() {
-        let config = OutputSanitizer.Config.gemma
-        var streamGuard = StreamingOutputGuard(config: config)
-        // Feed a full control token as a single piece; both must cut/stop.
-        _ = streamGuard.append("<|turn>")
-        XCTAssertTrue(streamGuard.isStopped)
-        let sanitized = OutputSanitizer(config: config).process("abc<|turn>def", promptTail: "abc")
-        XCTAssertEqual(sanitized.text, "abc")
     }
 }

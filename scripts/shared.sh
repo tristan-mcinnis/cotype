@@ -51,39 +51,6 @@ COTYPE_BUILD_DATE="$(git -C "$ROOT" log -1 --format='%cd' --date=format:%Y-%m-%d
 COTYPE_BUILD_MODE="${COTYPE_BUILD_MODE:-development}"
 
 # ---------------------------------------------------------------------------
-# Model
-# ---------------------------------------------------------------------------
-
-COTYPE_MODEL_FILENAME="${COTYPE_MODEL_FILENAME:-gemma-4-E2B-it-Q4_K_M.gguf}"
-COTYPE_MODEL_SHA256="${COTYPE_MODEL_SHA256:-740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8}"
-# Legacy standalone fallback only. The normal Cotype path uses the Local Models
-# daemon, whose registry owns this file under ~/Models/gguf.
-COTYPE_MODEL_SOURCE="${COTYPE_MODEL_SOURCE:-$HOME/Models/gguf/$COTYPE_MODEL_FILENAME}"
-COTYPE_MODEL_DIR="${COTYPE_MODEL_DIR:-$HOME/Library/Application Support/Cotype/Models}"
-COTYPE_MODEL="${COTYPE_MODEL:-$COTYPE_MODEL_DIR/$COTYPE_MODEL_FILENAME}"
-# Hugging Face repo for the model, if/when the in-app downloader is wired.
-COTYPE_MODEL_REPO="${COTYPE_MODEL_REPO:-unsloth/gemma-4-E2B-it-GGUF}"
-COTYPE_MODEL_REVISION="${COTYPE_MODEL_REVISION:-0314792d7f1f7e229411f620751375812bb9faf2}"
-COTYPE_MODEL_LICENSE="${COTYPE_MODEL_LICENSE:-Apache-2.0}"
-COTYPE_MODEL_LICENSE_URL="${COTYPE_MODEL_LICENSE_URL:-https://ai.google.dev/gemma/docs/gemma_4_license}"
-
-# Rough disk / RAM guidance shown during install and in docs. Not authoritative.
-COTYPE_MODEL_SIZE_HUMAN="${COTYPE_MODEL_SIZE_HUMAN:-~3.5 GB}"
-
-# ---------------------------------------------------------------------------
-# llama.cpp
-# ---------------------------------------------------------------------------
-
-# Pinned binary-target URL in Package.swift, e.g. llama-b10665-xcframework.zip.
-COTYPE_PACKAGE_URL="$(\
-  grep -m1 -Eo 'llama-b[0-9]+-xcframework\.zip' "$ROOT/Package.swift" 2>/dev/null \
-  || echo llama-b10665-xcframework.zip)"
-COTYPE_LLAMA_BUILD="${COTYPE_LLAMA_BUILD:-${COTYPE_PACKAGE_URL#llama-}}"
-COTYPE_LLAMA_BUILD="${COTYPE_LLAMA_BUILD%%-xcframework.zip}"   # e.g. b10665
-COTYPE_LLAMA_VERSION="${COTYPE_LLAMA_VERSION:-${COTYPE_LLAMA_BUILD#b}}"
-COTYPE_LLAMA_LICENSE="${COTYPE_LLAMA_LICENSE:-MIT}"
-
-# ---------------------------------------------------------------------------
 # Install / app destinations
 # ---------------------------------------------------------------------------
 
@@ -345,18 +312,6 @@ sign_identity_label() {
 }
 
 # ---------------------------------------------------------------------------
-# llama.cpp framework location
-# ---------------------------------------------------------------------------
-
-# Locate the extracted llama.xcframework that SPM pulled for the current build.
-find_llama_framework() {
-  local found
-  found="$(find "$ROOT/.build" -type d -path '*llama.xcframework/macos-arm64_x86_64/llama.framework' 2>/dev/null | head -1 || true)"
-  [[ -n "$found" ]] || die "Could not locate llama.framework under .build. Run \`swift build -c release\` first."
-  printf '%s' "$found"
-}
-
-# ---------------------------------------------------------------------------
 # Sparkle 2 framework location
 # ---------------------------------------------------------------------------
 
@@ -482,19 +437,4 @@ verify_bundle() {
     return 1
   fi
   return 0
-}
-
-# ---------------------------------------------------------------------------
-# Model helpers
-# ---------------------------------------------------------------------------
-
-model_exists() { [[ -f "${1:-$COTYPE_MODEL}" ]]; }
-
-model_sha256() { shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'; }
-
-model_is_valid() {
-  model_exists "$1" || return 1
-  local actual expected="${2:-$COTYPE_MODEL_SHA256}"
-  actual="$(model_sha256 "$1")"
-  [[ -n "$actual" && "$actual" == "$expected" ]]
 }

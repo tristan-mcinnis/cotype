@@ -11,7 +11,6 @@ import HouseUIKit
 
 struct PersonalizationPane: View {
     let store: PersonalizationStore
-    @ObservedObject var engineManager: EngineManager
 
     // Content logging is OFF by default. Content-free, bounded usage counters
     // are still recorded as documented in Privacy & Data.

@@ -24,7 +24,6 @@ final class ControllerInteractionTests: XCTestCase {
         let overrides = AppOverridesStore(fileURL: tempFileURL("overrides"))
         let inserter = RecordingInserter()
         let controller = CompletionController(
-            engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: personalization,
             overrides: overrides,
             websiteRules: makeWebsiteRulesStore(),
@@ -233,7 +232,6 @@ final class ControllerInteractionTests: XCTestCase {
         let personalization = makePersonalizationStore("hidden-overlay")
         let renderer = GhostTextRenderer(geometryProvider: nil)
         let controller = CompletionController(
-            engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: personalization,
             overrides: AppOverridesStore(fileURL: tempFileURL("hidden-overlay-overrides")),
             websiteRules: makeWebsiteRulesStore(),
@@ -323,7 +321,6 @@ final class ControllerInteractionTests: XCTestCase {
         defaults.set(true, forKey: "enableCompletions")
         let inserter = SlowInserter(delayNanoseconds: 150_000_000)
         let controller = CompletionController(
-            engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: makePersonalizationStore(),
             overrides: AppOverridesStore(fileURL: tempFileURL("overrides")),
             websiteRules: makeWebsiteRulesStore(),
@@ -353,7 +350,6 @@ final class ControllerInteractionTests: XCTestCase {
         let personalization = makePersonalizationStore("visible-overlay")
         let renderer = GhostTextRenderer(geometryProvider: FixedGeometry())
         let controller = CompletionController(
-            engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: personalization,
             overrides: AppOverridesStore(fileURL: tempFileURL("visible-overlay-overrides")),
             websiteRules: makeWebsiteRulesStore(),
@@ -468,7 +464,6 @@ final class ControllerInteractionTests: XCTestCase {
         let overrides = AppOverridesStore(fileURL: tempFileURL("overrides"))
         let inserter = SlowInserter(delayNanoseconds: 5_000_000)
         let controller = CompletionController(
-            engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: personalization,
             overrides: overrides,
             websiteRules: makeWebsiteRulesStore(),
@@ -529,7 +524,6 @@ final class ControllerInteractionTests: XCTestCase {
         let provider = StubFocusIdentityProvider(initialFocus)
         let inserter = AdvancingTargetInserter(provider: provider)
         let controller = CompletionController(
-            engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: makePersonalizationStore(),
             overrides: AppOverridesStore(fileURL: tempFileURL("overrides")),
             websiteRules: makeWebsiteRulesStore(),
@@ -566,7 +560,6 @@ final class ControllerInteractionTests: XCTestCase {
         let inserter = SlowInserter(delayNanoseconds: 5_000_000)
         let provider = StubFocusIdentityProvider(Self.stableFocus)
         let controller = CompletionController(
-            engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: makePersonalizationStore(),
             overrides: AppOverridesStore(fileURL: tempFileURL("overrides")),
             websiteRules: makeWebsiteRulesStore(),

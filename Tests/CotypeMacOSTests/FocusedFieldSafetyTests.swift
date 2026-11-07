@@ -115,7 +115,6 @@ final class FocusedFieldControllerTests: XCTestCase {
         let overrides = AppOverridesStore(fileURL: tempFileURL("overrides"))
         let inserter = RecordingInserter()
         let controller = CompletionController(
-            engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: personalization,
             overrides: overrides,
             websiteRules: makeWebsiteRulesStore(),

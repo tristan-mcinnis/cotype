@@ -392,7 +392,6 @@ private final class Rig {
         let defaults = makeUserDefaults()
         defaults.set(true, forKey: "enableCompletions")
         defaults.set(autoSuggest, forKey: CompletionController.autoSuggestKey)
-        defaults.set(true, forKey: DaemonRoutedEngine.enabledKey)
         defaults.set(style.rawValue, forKey: PromptStyle.defaultsKey)
         defaults.set(length.rawValue, forKey: SuggestionLength.defaultsKey)
 
@@ -413,7 +412,6 @@ private final class Rig {
         )
         let editor = self.editor
         controller = CompletionController(
-            engineManager: EngineManager(modelPathOverride: "/fake/model.gguf", engineFactory: { _ in MockClosableEngine() }),
             personalization: makePersonalizationStore("e2e"),
             overrides: AppOverridesStore(fileURL: tempFileURL("e2e-overrides")),
             websiteRules: makeWebsiteRulesStore(),

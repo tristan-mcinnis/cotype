@@ -8,13 +8,11 @@ import CotypeMacOS
 //
 //   cotype-eval                        -> MockInferenceEngine (deterministic)
 //   cotype-eval --engine openai        -> OpenAICompatibleEngine from env vars
-//   cotype-eval --engine llama         -> LlamaCppEngine (local GGUF, Metal)
 //   cotype-eval --engine daemon        -> the app's production engine: Local
 //                                         Models registry -> warm llama-server
 //
 // Flags:
-//   --model <path>       GGUF path (llama only; defaults to the Cotype Models dir)
-//   --max-tokens <n>     cap generated tokens (llama only, default 128)
+//   --max-tokens <n>     cap generated tokens (daemon only, default 128)
 //   --limit <n>          run only the first n cases (smoke testing)
 //   --set prose          run the everyday-writing set, with synthetic author facts
 //   --json               also emit machine-readable results (stdout)
@@ -86,8 +84,7 @@ func seconds(_ duration: Duration) -> Double {
 }
 
 let engineName = flagValue("--engine") ?? "mock"
-let modelPath = flagValue("--model") ?? LlamaCppEngine.defaultModelPath()
-let maxTokens = Int32(intFlag("--max-tokens", default: 128))
+let maxTokens = intFlag("--max-tokens", default: 128)
 let limit = intFlag("--limit", default: 0)
 // The author's custom writing-style note for the instruction lane. Empty means
 // none; the fixed continuation directive is added by the app-equivalent
@@ -104,16 +101,6 @@ let evalExamples = envText("COTYPE_EVAL_EXAMPLES", default: "")
 let engine: InferenceEngine
 let engineLabel: String
 let configDescription: [String: String]
-var modelProvenance = ModelProvenance(
-    path: modelPath,
-    file: modelPath.map { ($0 as NSString).lastPathComponent },
-    repo: flagValue("--model-repo"),
-    revision: flagValue("--model-revision"),
-    sha256: flagValue("--model-sha") ?? (modelPath.flatMap { p in
-        FileManager.default.fileExists(atPath: p) ? (try? sha256OfFile(at: URL(fileURLWithPath: p))) : nil
-    })
-)
-var coldLoadSeconds: Double?
 switch engineName {
 case "openai":
     let baseURLString = envText("OPENAI_BASE_URL", default: "http://localhost:8080/v1")
@@ -126,34 +113,11 @@ case "openai":
     engine = OpenAICompatibleEngine(baseURL: baseURL, model: model, apiKey: apiKey)
     engineLabel = "openai (\(model) @ \(baseURLString))"
     configDescription = ["engine": "openai", "model": model, "base_url": baseURLString]
-case "llama":
-    guard let path = modelPath else {
-        writeErr("No model found. Pass --model <path> or place a .gguf in " +
-                 "~/Library/Application Support/Cotype/Models/")
-        exit(2)
-    }
-    let loadStart = ContinuousClock.now
-    do {
-        engine = try LlamaCppEngine(path: path, maxTokens: maxTokens, temperature: 0, quietLogs: true)
-    } catch {
-        writeErr("Failed to load model at \(path): \(error)")
-        exit(2)
-    }
-    coldLoadSeconds = seconds(ContinuousClock.now - loadStart)
-    modelProvenance = ModelProvenance(
-        path: path,
-        file: (path as NSString).lastPathComponent,
-        repo: flagValue("--model-repo"),
-        revision: flagValue("--model-revision"),
-        sha256: flagValue("--model-sha") ?? (try? sha256OfFile(at: URL(fileURLWithPath: path)))
-    )
-    engineLabel = "llama.cpp (\((path as NSString).lastPathComponent))"
-    configDescription = ["engine": "llama.cpp", "model": (path as NSString).lastPathComponent]
 case "daemon":
     // Exactly what the menu app streams from: registry lookup on the Local
     // Models control plane, then the advertised warm endpoint.
     let alias = flagValue("--daemon-model") ?? DaemonRoutedEngine.defaultModel
-    engine = LocalModelsCompletionEngine(modelAlias: alias, maxTokens: Int(maxTokens), temperature: 0)
+    engine = LocalModelsCompletionEngine(modelAlias: alias, maxTokens: maxTokens, temperature: 0)
     engineLabel = "local-models daemon (\(alias))"
     configDescription = ["engine": "daemon", "model": alias]
 default:
@@ -221,41 +185,35 @@ let totalTokens = Double(results.reduce(0) { $0 + $1.tokenCount })
 let totalGeneration = results.reduce(0.0) { $0 + max($1.duration - $1.timeToFirstToken, 0) }
 let aggregateThroughput: Double? = totalGeneration > 0 ? totalTokens / totalGeneration : nil
 
-// Enforce performance gates only for the local model release lane (llama). The
-// mock/openai lanes report provenance but are not held to machine thresholds.
-let perfGates = (engine is LlamaCppEngine) ? PerformanceGates.modelRelease : PerformanceGates()
+// No lane is held to machine thresholds; the report keeps the gate fields.
+let perfGates = PerformanceGates()
 let performance = PerformanceSummary(
     averageTokensPerSecond: aggregateThroughput,
     medianTokensPerSecond: summary.averageThroughput > 0 ? summary.medianThroughput : nil,
     averageTimeToFirstToken: summary.averageTTFT,
     averageLatency: summary.averageLatency,
     peakResidentMemoryBytes: peakResidentMemoryBytes(),
-    coldLoadSeconds: coldLoadSeconds
+    coldLoadSeconds: nil
 )
-let perfPassed = perfGates.passes(
-    tokensPerSecond: aggregateThroughput,
-    coldLoadSeconds: coldLoadSeconds
-)
+let perfPassed = perfGates.passes(tokensPerSecond: aggregateThroughput, coldLoadSeconds: nil)
 // A run only passes overall when quality AND any required performance gates pass.
 // With no required perf gates (mock/openai) `perfPassed` is trivially true.
 let gatesPassed = qualityPassed && perfPassed && adherencePassed
 
 print("perf gates: \(perfGates.requirementsDescription)  \(perfPassed ? "PASS" : "FAIL")")
 if let tp = aggregateThroughput { print(String(format: "throughput: %.1f tok/s", tp)) }
-if let cl = coldLoadSeconds { print(String(format: "cold load: %.2f s", cl)) }
 
 if hasFlag("--json") {
     let gitCommit = shellOutput("git", "rev-parse", "HEAD")
     let provenance = MachineProvenance.capture(
         gitCommit: gitCommit,
-        llamaBuild: envText("COTYPE_LLAMA_BUILD", default: "b10665"),
-        model: modelProvenance
+        llamaBuild: nil
     )
     let report = EvalRunReport(
         provenance: provenance,
         config: EvalRunConfig(
             temperature: 0,
-            maxTokens: Int(maxTokens),
+            maxTokens: maxTokens,
             caseLimit: limit > 0 ? limit : nil,
             caseSetCount: results.count
         ),
@@ -271,7 +229,6 @@ if hasFlag("--json") {
     }
 }
 
-(engine as? LlamaCppEngine)?.close()
 exit(gatesPassed ? 0 : 1)
 
 /// Print a per-case aligned table of the headline fields.

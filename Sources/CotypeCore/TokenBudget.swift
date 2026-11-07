@@ -2,8 +2,8 @@ import Foundation
 
 /// The one policy that decides how many tokens a completion request may use.
 ///
-/// Every surface reads this: the Settings pane displays it, the daemon lane and
-/// the in-process lane put the same number in `max_tokens`, and diagnostics
+/// Every surface reads this: the Settings pane displays it, the daemon lane
+/// puts the number in `max_tokens`, and diagnostics
 /// reports it. A stored `maxTokens` value is honoured only when the user chose
 /// the explicit mode; an old value left behind by a previous build therefore
 /// cannot silently disagree with the suggestion-length setting.

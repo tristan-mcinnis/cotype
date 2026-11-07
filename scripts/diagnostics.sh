@@ -3,13 +3,12 @@
 set -euo pipefail
 
 # Cotype diagnostic report. Produces a safe-to-share report of version, build
-# metadata, signing, model (path/size/hash), llama.cpp build, and permission
-# PREFLIGHT status. It never reads document text, clipboard contents, or the
+# metadata, signing, the Local Models model alias, and permission PREFLIGHT
+# status. It never reads document text, clipboard contents, or the
 # personalization / app-overrides data files.
 #
 #   ./scripts/diagnostics.sh                 text report to stdout
 #   ./scripts/diagnostics.sh --format json   machine-readable report
-#   ./scripts/diagnostics.sh --hash          include the model SHA-256
 #   ./scripts/diagnostics.sh --app <path>    target a specific Cotype.app
 #   ./scripts/diagnostics.sh --out <file>    write the report to a file
 #
@@ -27,9 +26,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --app) APP="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
-    --hash|--no-hash) EXTRA+=("$1"); shift ;;
     --format) EXTRA+=("--format" "$2"); shift 2 ;;
-    --help|-h) echo "Usage: ./scripts/diagnostics.sh [--app path] [--format json|text] [--hash|--no-hash] [--out file]"; exit 0 ;;
+    --help|-h) echo "Usage: ./scripts/diagnostics.sh [--app path] [--format json|text] [--out file]"; exit 0 ;;
     *) die "Unknown option: $1" ;;
   esac
 done
@@ -47,7 +45,6 @@ fi
 set +e
 OUTPUT="$("$ROOT/.build/release/cotype-diagnostics" \
   --app "$APP" \
-  --llama-build "$COTYPE_LLAMA_BUILD" \
   "${EXTRA[@]+${EXTRA[@]}}")"
 code=$?
 set -e

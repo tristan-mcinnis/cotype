@@ -72,9 +72,6 @@ fi
 # Sign nested code first, then the outer app, all with Hardened Runtime and a
 # secure timestamp. Notarization rejects partially or inconsistently signed code.
 log "Re-signing with Hardened Runtime using '$DEVELOPER_ID'…"
-FRAMEWORK="$APP/Contents/Frameworks/llama.framework"
-[[ -d "$FRAMEWORK" ]] || die "Embedded llama.framework is missing."
-codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" "$FRAMEWORK"
 codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" "$APP"
 
 if [[ "$SUBMIT" == "1" ]]; then

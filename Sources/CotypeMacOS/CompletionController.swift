@@ -35,7 +35,6 @@ public final class CompletionController: ObservableObject {
         didSet { userDefaults.set(completionsEnabled, forKey: "enableCompletions") }
     }
 
-    public let engineManager: EngineManager
     public let personalization: PersonalizationStore
     public let overrides: AppOverridesStore
     /// Per-website enable/instruction rules. Read at trigger and revalidated at
@@ -51,11 +50,10 @@ public final class CompletionController: ObservableObject {
     /// completed generations from leaving separate NSWindow instances onscreen.
     private let overlayRenderer: CompletionRenderer
     private let pipelineEngineOverride: InferenceEngine?
-    /// Resolves the Local Models daemon engine for the current defaults, or nil
-    /// when daemon mode is off / the endpoint is unusable. Injected so tests can
-    /// substitute a deterministic daemon engine; production uses
-    /// `DaemonRoutedEngine.daemonEngine(defaults:)`.
-    private let daemonEngineProvider: (UserDefaults) -> InferenceEngine?
+    /// Resolves the Local Models daemon engine for the current defaults.
+    /// Injected so tests can substitute a deterministic daemon engine;
+    /// production uses `DaemonRoutedEngine.daemonEngine(defaults:)`.
+    private let daemonEngineProvider: (UserDefaults) -> InferenceEngine
     /// Overrides the context provider. Injected so tests (which route through the
     /// daemon seam) do not touch the live focused element; production is nil and
     /// uses the fail-closed Accessibility provider.
@@ -130,7 +128,6 @@ public final class CompletionController: ObservableObject {
     private var commitsInFlight = 0
 
     public init(
-        engineManager: EngineManager,
         personalization: PersonalizationStore = PersonalizationStore(),
         overrides: AppOverridesStore = AppOverridesStore(),
         websiteRules: WebsiteRulesStore,
@@ -140,7 +137,7 @@ public final class CompletionController: ObservableObject {
         inserter: CompletionInserter = CompletionInsertionRouter(),
         renderer: CompletionRenderer = GhostTextRenderer(),
         pipelineEngineOverride: InferenceEngine? = nil,
-        daemonEngineProvider: @escaping (UserDefaults) -> InferenceEngine? = {
+        daemonEngineProvider: @escaping (UserDefaults) -> InferenceEngine = {
             DaemonRoutedEngine.daemonEngine(defaults: $0)
         },
         contextProviderOverride: ContextProvider? = nil,
@@ -150,7 +147,6 @@ public final class CompletionController: ObservableObject {
         focusIdentityProvider: FocusIdentityProvider? = nil,
         userDefaults: UserDefaults = .standard
     ) {
-        self.engineManager = engineManager
         self.notShown = notShown
         self.personalization = personalization
         self.overrides = overrides
@@ -363,18 +359,6 @@ public final class CompletionController: ObservableObject {
             noteNotShown(.websiteDisabled, appIdentifier: appIdentifier)
             return false
         }
-        // Daemon mode is a first-class production model source: with the Local
-        // Models daemon toggle on, generation proceeds even with no in-process
-        // model path (Cotype is a thin client of the daemon's registry). When
-        // daemon mode is off, the no-model block applies exactly as before.
-        let daemonEngine = daemonEngineProvider(userDefaults)
-        guard pipelineEngineOverride != nil || daemonEngine != nil || engineManager.modelPath != nil else {
-            lastError = "No model installed. Open Cotype Setup to install the local model."
-            CotypeLog.loop.error("skip: no model")
-            noteNotShown(.noModel, appIdentifier: appIdentifier)
-            return false
-        }
-
         // Fail closed: an exact focused-field identity is required before context
         // capture, rendering, acceptance, or insertion.
         guard let focusTarget = focusIdentityProvider.currentFocusTarget() else {
@@ -468,12 +452,9 @@ public final class CompletionController: ObservableObject {
         // there is deliberately no UI in this slice.
         let includeWindowContext = userDefaults.object(forKey: "context.windowTree") as? Bool ?? false
         let detector = SensitiveContextDetector(userExclusions: personalization.userExcludedApps)
-        // Production resolves the engine: the daemon seam when Local Models daemon
-        // mode is on, otherwise the in-process EngineManager. The injected pipeline
-        // override stays a pure test seam and takes precedence over both.
-        let engine: InferenceEngine = pipelineEngineOverride
-            ?? daemonEngine
-            ?? engineManager
+        // Production streams from Local Models. The injected pipeline override
+        // stays a pure test seam and takes precedence.
+        let engine = pipelineEngineOverride ?? daemonEngineProvider(userDefaults)
         // An injected inference engine (pipeline override or daemon seam) is a
         // deterministic test seam and must not touch the live focused element.
         // Production always uses the fail-closed Accessibility provider.
