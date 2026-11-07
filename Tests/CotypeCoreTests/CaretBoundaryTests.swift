@@ -74,8 +74,7 @@ final class SuggestionLengthTests: XCTestCase {
         XCTAssertTrue(SuggestionLength.long.applied(to: AutocompletePrompt.defaultSystem).contains("finish the current sentence"))
         XCTAssertFalse(SuggestionLength.short.applied(to: AutocompletePrompt.defaultSystem).contains("2-5 words"))
         XCTAssertEqual(SuggestionWordLimiter.limit("due to better quality and price", maxWords: SuggestionLength.short.maxWords), "due to better quality")
-        let d = UserDefaults(suiteName: "SuggestionLengthTests")!
-        d.removePersistentDomain(forName: "SuggestionLengthTests")
+        let d = makeUserDefaults()
         XCTAssertEqual(SuggestionLength.current(d), .short)
         XCTAssertEqual(SuggestionLength.short.title, "1-4 words")
         XCTAssertEqual(SuggestionLength.short.promptPhrase, "(usually 1-4 words)")

@@ -12,8 +12,7 @@ final class DaemonLiveIntegrationTests: XCTestCase {
             ProcessInfo.processInfo.environment["COTYPE_DAEMON_LIVE"] == "1",
             "set COTYPE_DAEMON_LIVE=1 with the local-models daemon warm to run"
         )
-        let suite = "daemon-live-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = makeUserDefaults()
         let engine = DaemonRoutedEngine.daemonEngine(defaults: defaults)
         let prompt = Prompt(
             system: "You are an autocomplete assistant. Complete the user's text naturally and concisely. Return only the continuation; do not repeat the input.",

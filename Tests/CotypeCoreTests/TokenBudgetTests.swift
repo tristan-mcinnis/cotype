@@ -5,16 +5,9 @@ import XCTest
 /// Settings pane displays and both engines transmit.
 final class TokenBudgetTests: XCTestCase {
 
-    private func makeDefaults() -> UserDefaults {
-        let name = "token-budget-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
-        return defaults
-    }
-
     func testAutoFollowsSuggestionLengthForEveryLength() {
         for length in SuggestionLength.allCases {
-            let defaults = makeDefaults()
+            let defaults = makeUserDefaults()
             defaults.set(length.rawValue, forKey: SuggestionLength.defaultsKey)
             let budget = TokenBudget.effective(defaults)
             XCTAssertEqual(budget.tokens, length.maxTokens)
@@ -24,14 +17,14 @@ final class TokenBudgetTests: XCTestCase {
     }
 
     func testAutoIsTheDefaultAndIgnoresAStoredLegacyOverride() {
-        let defaults = makeDefaults()
+        let defaults = makeUserDefaults()
         defaults.set(512, forKey: TokenBudget.explicitValueKey)
         XCTAssertEqual(TokenBudget.mode(defaults), .auto)
         XCTAssertEqual(TokenBudget.effective(defaults).tokens, SuggestionLength.default.maxTokens)
     }
 
     func testExplicitOverrideAppliesAndIsClamped() {
-        let defaults = makeDefaults()
+        let defaults = makeUserDefaults()
         defaults.set(TokenBudget.Mode.explicit.rawValue, forKey: TokenBudget.modeKey)
 
         defaults.set(64, forKey: TokenBudget.explicitValueKey)
@@ -46,13 +39,13 @@ final class TokenBudgetTests: XCTestCase {
     }
 
     func testExplicitModeWithoutAStoredValueUsesTheDocumentedDefault() {
-        let defaults = makeDefaults()
+        let defaults = makeUserDefaults()
         defaults.set(TokenBudget.Mode.explicit.rawValue, forKey: TokenBudget.modeKey)
         XCTAssertEqual(TokenBudget.effective(defaults).tokens, TokenBudget.explicitDefault)
     }
 
     func testUnknownModeFallsBackToAutoInsteadOfSilentlyTrustingAValue() {
-        let defaults = makeDefaults()
+        let defaults = makeUserDefaults()
         defaults.set("garbage", forKey: TokenBudget.modeKey)
         defaults.set(999, forKey: TokenBudget.explicitValueKey)
         XCTAssertEqual(TokenBudget.mode(defaults), .auto)
@@ -62,7 +55,7 @@ final class TokenBudgetTests: XCTestCase {
     /// The displayed number is the transmitted number: `daemonEngine` builds its
     /// engine from this exact policy, and the engine clamps to the same ceiling.
     func testDisplayedBudgetEqualsTheEngineBudget() {
-        let defaults = makeDefaults()
+        let defaults = makeUserDefaults()
         defaults.set(TokenBudget.Mode.explicit.rawValue, forKey: TokenBudget.modeKey)
         defaults.set(1024, forKey: TokenBudget.explicitValueKey)
         let displayed = TokenBudget.effective(defaults).tokens

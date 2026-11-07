@@ -35,8 +35,7 @@ final class AcceptBehaviorTests: XCTestCase {
     }
 
     func testBehaviorRoundTrips() {
-        let defaults = UserDefaults(suiteName: "AcceptBehaviorTests")!
-        defaults.removePersistentDomain(forName: "AcceptBehaviorTests")
+        let defaults = makeUserDefaults()
         XCTAssertEqual(AcceptBehaviorStore.load(userDefaults: defaults), .default)
         let custom = AcceptBehavior(key: .rightArrow, mode: .wholeSuggestion)
         AcceptBehaviorStore.save(custom, userDefaults: defaults)

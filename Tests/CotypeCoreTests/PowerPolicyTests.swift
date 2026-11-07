@@ -37,9 +37,7 @@ final class PowerPolicyTests: XCTestCase {
     }
 
     func testDefaultsRespectLowPowerModeButNotBattery() {
-        let name = "power-policy-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
+        let defaults = makeUserDefaults()
         let settings = BatteryPolicy.Settings.current(defaults)
         XCTAssertFalse(settings.pauseOnBattery)
         XCTAssertTrue(settings.pauseInLowPowerMode)

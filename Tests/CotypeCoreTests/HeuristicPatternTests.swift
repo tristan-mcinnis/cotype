@@ -72,7 +72,7 @@ final class HeuristicPatternTests: XCTestCase {
     }
 
     func testEmojiAreOffByDefault() {
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let defaults = makeUserDefaults()
         XCTAssertFalse(EmojiFilter.allowsEmoji(defaults))
     }
 }

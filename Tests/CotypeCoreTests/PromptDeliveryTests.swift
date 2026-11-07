@@ -50,13 +50,6 @@ final class PromptDeliveryTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    private func makeDefaults() -> UserDefaults {
-        let name = "prompt-delivery-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
-        return defaults
-    }
-
     // MARK: The default lane keeps its measured shape
 
     func testDefaultInstallSendsTheMeasuredDocumentUnchanged() async throws {
@@ -198,7 +191,7 @@ final class PromptDeliveryTests: XCTestCase {
     // MARK: Transmission budget
 
     func testRequestBodyCarriesTheEffectiveBudget() async throws {
-        let defaults = makeDefaults()
+        let defaults = makeUserDefaults()
         defaults.set(SuggestionLength.long.rawValue, forKey: SuggestionLength.defaultsKey)
         let budget = TokenBudget.effective(defaults)
         let engine = OpenAICompatibleEngine(
