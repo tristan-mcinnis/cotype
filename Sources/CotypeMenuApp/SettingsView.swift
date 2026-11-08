@@ -93,25 +93,6 @@ struct SettingsCard<Content: View>: View {
     }
 }
 
-/// A labeled control row: label on the left, control on the right.
-struct SettingsRow<Control: View>: View {
-    var title: String
-    var caption: String?
-    @ViewBuilder var control: Control
-
-    init(_ title: String, caption: String? = nil, @ViewBuilder control: () -> Control) {
-        self.title = title
-        self.caption = caption
-        self.control = control()
-    }
-
-    var body: some View {
-        SlateRow(title: title, detail: caption) {
-            control
-        }
-    }
-}
-
 /// The root settings window: the shared Slate shell — a 220 px rail on the
 /// sunken ground, a 60 px pane header, cards on the window ground, and a
 /// footer well.
@@ -312,18 +293,6 @@ struct SettingsView: View {
 }
 
 // MARK: - Formatting helpers
-
-func formatFileSize(_ bytes: Int64?) -> String {
-    guard let bytes, bytes > 0 else { return "—" }
-    let units = ["B", "KB", "MB", "GB", "TB"]
-    var value = Double(bytes)
-    var index = 0
-    while value >= 1024, index < units.count - 1 {
-        value /= 1024
-        index += 1
-    }
-    return String(format: "%.1f %@", value, units[index])
-}
 
 func appDisplayName(for bundleID: String) -> String {
     if bundleID == AppOverridesStore.defaultKey { return "Global Defaults" }

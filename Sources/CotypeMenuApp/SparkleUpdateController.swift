@@ -81,9 +81,4 @@ final class SparkleUpdateController: ObservableObject {
     func checkForUpdates() {
         controller?.checkForUpdates(nil)
     }
-
-    /// Persist the user's auto-check preference and drive Sparkle's scheduler.
-    func setAutomaticallyChecksForUpdates(_ enabled: Bool) {
-        automaticallyChecksForUpdates = enabled
-    }
 }

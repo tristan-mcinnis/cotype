@@ -9,17 +9,6 @@ import HouseUIKit
 
 // MARK: - Outcome presentation helpers
 
-func outcomeIcon(for outcome: PersonalizationOutcome) -> String {
-    switch outcome {
-    case .accepted: return "checkmark.circle.fill"
-    case .dismissed: return "xmark.circle.fill"
-    case .shown: return "eye.fill"
-    case .canceled: return "minus.circle.fill"
-    case .written: return "pencil.circle.fill"
-    case .failed: return "exclamationmark.triangle.fill"
-    }
-}
-
 func outcomeTint(for outcome: PersonalizationOutcome) -> Color {
     switch outcome {
     case .accepted: return House.ColorToken.success

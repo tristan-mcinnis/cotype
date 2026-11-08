@@ -19,8 +19,6 @@ final class PermissionMonitor: ObservableObject {
     @Published private(set) var hasInputMonitoring = false
     @Published private(set) var hasPostEventAccess = false
 
-    var allGranted: Bool { hasAccessibility && hasInputMonitoring }
-
     private var timer: Timer?
 
     init() {

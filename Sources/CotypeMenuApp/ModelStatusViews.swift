@@ -106,18 +106,6 @@ struct LocalModelsStatusCard: View {
     }
 }
 
-/// A small two-column info row used across the model cards. Label on the left,
-/// value on the right, aligned to the first text baseline so rows line up.
-struct ModelInfoRow: View {
-    var title: String
-    var value: String
-    var monospaced = false
-
-    var body: some View {
-        SlateInfoRow(title: title, value: value, monospaced: monospaced)
-    }
-}
-
 /// The Local Models status card with its own monitor. Shared by the Setup
 /// and General panes.
 struct ModelStatusRow: View {

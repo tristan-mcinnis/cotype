@@ -479,19 +479,6 @@ public final class GlobalKeyMonitor {
         layoutObserver = nil
     }
 
-    /// Explicitly set the trigger chord (persisting it), used by the settings UI.
-    public func setTriggerShortcut(_ shortcut: TriggerShortcut) {
-        TriggerShortcutStore.save(shortcut)
-        triggerShortcut = shortcut
-    }
-
-    /// Explicitly set the full-suggestion accept chord (persisting it), used by
-    /// the settings UI.
-    public func setAcceptAllShortcut(_ shortcut: AcceptAllShortcut) {
-        AcceptAllShortcutStore.save(shortcut)
-        acceptAllShortcut = shortcut
-    }
-
     /// Install or uninstall every global input path from the current state. The
     /// app delegate calls this from its phase hook.
     public func applyLifecycle() {

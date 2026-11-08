@@ -52,8 +52,6 @@ struct Arguments {
     }
 }
 
-enum ReportError: Error { case badURL(String) }
-
 // MARK: - Helpers
 
 func info(_ bundle: Bundle, _ key: String) -> String {
