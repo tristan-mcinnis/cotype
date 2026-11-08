@@ -111,7 +111,7 @@ log "Permission preflight (read-only; Cotype never grants these on install):"
 # We only *report* preflight status through the app's own diagnostics tool,
 # which reads AXIsProcessTrusted / CGPreflight* — see scripts/diagnostics.sh.
 # It is best-effort here so install still succeeds if the tool is unavailable.
-if ! "$ROOT/scripts/diagnostics.sh" --app "$COTYPE_APP" --format text --no-hash >/dev/null 2>&1; then
+if ! "$ROOT/scripts/diagnostics.sh" --app "$COTYPE_APP" --format text >/dev/null 2>&1; then
   warn "Could not run diagnostics for permission preflight (continue; use './scripts/diagnostics.sh')."
 fi
 
