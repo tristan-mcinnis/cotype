@@ -158,7 +158,7 @@ Trigger → Context → Prompt → Inference → Render → Insert
 
 | Stage | Protocol | Included implementations |
 |---|---|---|
-| Trigger | `TriggerProvider` | menu + global `CGEventTap` in the app |
+| Trigger | none (not a pluggable stage) | menu + global `CGEventTap` in the app |
 | Context | `ContextProvider` | `StaticContextProvider`, `AXTextContextProvider` |
 | Prompt | `PromptBuilder` | `TemplatePromptBuilder` with contextual infill |
 | Inference | `InferenceEngine` | Local Models daemon SSE, mock |

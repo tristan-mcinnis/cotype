@@ -1,14 +1,10 @@
 import Foundation
 
-/// Each stage of the completion loop is a protocol. Swap in your own
-/// implementation, or wrap an existing one, without touching the rest.
-/// This is the extensibility surface that Cotypist does not expose.
-
-/// Detects *when* a completion should be offered (typing pause, trigger key).
-public protocol TriggerProvider {
-    /// Async stream of trigger moments. Each element is a best-effort request.
-    func triggers() -> AsyncStream<CompletionRequest>
-}
+/// Each stage of the completion loop after the trigger is a protocol. Swap in
+/// your own implementation, or wrap an existing one, without touching the rest.
+/// This is the extensibility surface that Cotypist does not expose. The trigger
+/// itself is the app's key monitor (menu and global `CGEventTap`), not a
+/// pluggable stage.
 
 /// Collects context around the cursor: focused-editor text, clipboard,
 /// screenshot, document metadata, and anything else.
