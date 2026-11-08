@@ -229,15 +229,7 @@ final class OutputSanitizerTests: XCTestCase {
         XCTAssertFalse(outcome.isNoSuggestion)
     }
 
-    // MARK: - Forbidden-output detection (shared constants)
-
-    func testContainsForbiddenDetectsControlTokensAndMarkers() {
-        XCTAssertTrue(OutputSanitizer.containsForbidden("prefix<|turn>suffix"))
-        XCTAssertTrue(OutputSanitizer.containsForbidden("prefix<|channel base>suffix"))
-        XCTAssertTrue(OutputSanitizer.containsForbidden("prefix<|tool>suffix"))
-        XCTAssertFalse(OutputSanitizer.containsForbidden("ordinary text"))
-        XCTAssertFalse(OutputSanitizer.containsForbidden("if a < b then c"))
-    }
+    // MARK: - Shared constants
 
     func testSanitizerConfigSharedDefaults() {
         XCTAssertTrue(OutputSanitizer.Config.gemmaControlTokens.contains("<|turn>"))

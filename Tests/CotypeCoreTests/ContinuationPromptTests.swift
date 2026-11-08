@@ -30,14 +30,6 @@ final class ContinuationPromptTests: XCTestCase {
         XCTAssertEqual(member.requiredLeading, "js")
     }
 
-    func testHealingOnlySpacePutsAWordBack() {
-        let word = ContinuationPrompt(text: "so i", requiredLeading: " thin").healingOnlySpace
-        XCTAssertEqual(word.text, "so i thin")
-        XCTAssertEqual(word.requiredLeading, "")
-        let space = ContinuationPrompt(text: "so i", requiredLeading: " ").healingOnlySpace
-        XCTAssertEqual(space.requiredLeading, " ")
-    }
-
     func testLeadingStripperRemovesAWordFromInsideOneToken() {
         var stripper = ContinuationPrompt.LeadingStripper(" thin")
         XCTAssertEqual(stripper.strip(" think"), "k")

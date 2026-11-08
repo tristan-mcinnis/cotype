@@ -11,9 +11,6 @@ public struct PowerState: Equatable, Sendable {
         self.onBattery = onBattery
         self.lowPowerMode = lowPowerMode
     }
-
-    /// A desktop or a Mac with no readable battery reports external power.
-    public static let externalPower = PowerState(onBattery: false, lowPowerMode: false)
 }
 
 public protocol PowerStateProviding: Sendable {

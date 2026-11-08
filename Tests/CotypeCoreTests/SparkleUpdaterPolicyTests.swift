@@ -9,7 +9,6 @@ final class SparkleUpdaterPolicyTests: XCTestCase {
 
     func testEnabledAutomaticWhenFeedConfiguredAndAutoCheckOn() {
         XCTAssertEqual(SparkleUpdaterPolicy.resolve(feedConfigured: true, storedAutoCheck: true), .enabledAutomatic)
-        XCTAssertTrue(SparkleUpdaterPolicy.resolve(feedConfigured: true, storedAutoCheck: true).mayAutoCheck)
     }
 
     func testEnabledManualOnlyWhenFeedConfiguredButAutoCheckOff() {
@@ -17,11 +16,6 @@ final class SparkleUpdaterPolicyTests: XCTestCase {
         // manual checks but must NOT schedule/performs a launch-time check.
         let policy = SparkleUpdaterPolicy.resolve(feedConfigured: true, storedAutoCheck: false)
         XCTAssertEqual(policy, .enabledManualOnly)
-        XCTAssertFalse(policy.mayAutoCheck)
-    }
-
-    func testNotConfiguredNeverAutoChecks() {
-        XCTAssertFalse(SparkleUpdaterPolicy.resolve(feedConfigured: false, storedAutoCheck: true).mayAutoCheck)
     }
 
     // MARK: Complete-config seam (SUFeedURL + nonempty SUPublicEDKey)

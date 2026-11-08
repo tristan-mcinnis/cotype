@@ -235,7 +235,7 @@ final class NotShownReasonTests: XCTestCase {
         XCTAssertTrue(rig.controller.trigger())
         let visible = await waitUntil { rig.controller.isGhostVisible }
         XCTAssertTrue(visible)
-        XCTAssertEqual(rig.notShown.snapshot.totalCount, 0)
+        XCTAssertTrue(rig.notShown.snapshot.total.isEmpty)
     }
 
     func testControllerWithoutAStoreRecordsNothing() {

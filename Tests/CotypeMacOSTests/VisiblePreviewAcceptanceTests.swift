@@ -42,7 +42,7 @@ final class VisiblePreviewAcceptanceTests: XCTestCase {
 
     private func makeController(
         renderer: CompletionRenderer,
-        power: PowerState = .externalPower
+        power: PowerState = PowerState(onBattery: false, lowPowerMode: false)
     ) -> (CompletionController, RecordingInserter) {
         let defaults = makeUserDefaults()
         defaults.set(true, forKey: "enableCompletions")

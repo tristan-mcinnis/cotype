@@ -90,8 +90,6 @@ public struct NotShownSnapshot: Codable, Equatable, Sendable {
         self.perApp = perApp
     }
 
-    public var totalCount: Int { total.values.reduce(0) { $0 + $1.count } }
-
     /// Reasons by descending count, ties broken by the most recent sighting.
     public var ranked: [(key: String, value: Entry)] {
         total.sorted {

@@ -169,13 +169,6 @@ public struct ContinuationPrompt: Equatable, Sendable {
         return (String(before), word)
     }
 
-    /// The same prompt with a healed word put back, for an engine that can only
-    /// force a single first token and so cannot leave a finished word alone.
-    public var healingOnlySpace: ContinuationPrompt {
-        guard requiredLeading != " " else { return self }
-        return ContinuationPrompt(text: text + requiredLeading)
-    }
-
     /// Remove `requiredLeading` from the start of streamed output, across token
     /// boundaries. Feed each piece; returns what may be emitted now.
     public struct LeadingStripper: Sendable {

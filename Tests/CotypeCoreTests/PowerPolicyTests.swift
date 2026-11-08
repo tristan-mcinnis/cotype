@@ -25,7 +25,7 @@ final class PowerPolicyTests: XCTestCase {
             PowerState(onBattery: true, lowPowerMode: false),
             settings: settings
         ))
-        XCTAssertFalse(BatteryPolicy.pausesAutomatic(.externalPower, settings: settings))
+        XCTAssertFalse(BatteryPolicy.pausesAutomatic(PowerState(onBattery: false, lowPowerMode: false), settings: settings))
     }
 
     func testLowPowerOptOutStillHonorsBatteryOptIn() {

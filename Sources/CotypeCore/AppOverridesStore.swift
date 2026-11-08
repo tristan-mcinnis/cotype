@@ -76,11 +76,6 @@ public final class AppOverridesStore: @unchecked Sendable {
         queue.sync { Set(overrides.keys) }
     }
 
-    /// Whether an override exists for a key (vs. inheriting the default).
-    public func hasOverride(for key: String) -> Bool {
-        queue.sync { overrides[key] != nil }
-    }
-
     /// Set (or replace) the override for a bundle ID or the default key.
     public func setOverride(_ override: AppOverride, for key: String) {
         queue.sync {

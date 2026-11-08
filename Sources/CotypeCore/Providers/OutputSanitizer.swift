@@ -205,17 +205,6 @@ public struct OutputSanitizer {
         return !Self.repeatedTerminalWordIsPending(text, promptTail: promptTail)
     }
 
-    // MARK: - Forbidden-output detection (used by the eval, not by sanitizing)
-
-    /// Whether a string contains any known forbidden output: control tokens,
-    /// structural channel/tool markers, or invented turn delimiters. The eval
-    /// uses this to score `forbiddenOutput` independently of what the sanitizer
-    /// repaired, so a leak is still measurable.
-    public static func containsForbidden(_ text: String) -> Bool {
-        return Config.gemmaControlTokens.contains { text.contains($0) }
-            || Config.gemmaStructuralPrefixes.contains { text.contains($0) }
-    }
-
     // MARK: - Boundary-whitespace handling
 
     /// Final presentation trim.

@@ -40,7 +40,6 @@ final class NotShownStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.perApp["org.telegram.desktop"]?["noCaretGeometry"]?.count, 2)
         XCTAssertEqual(snapshot.perApp["com.apple.Notes"]?["noCaretGeometry"]?.count, 1)
         XCTAssertNil(snapshot.perApp["com.apple.Notes"]?["emptyCompletion"])
-        XCTAssertEqual(snapshot.totalCount, 4)
     }
 
     func testLastSeenTracksTheLatestRecord() {
@@ -113,7 +112,7 @@ final class NotShownStoreTests: XCTestCase {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("not json".utf8).write(to: url)
-        XCTAssertEqual(makeStore(url: url).snapshot.totalCount, 0)
+        XCTAssertTrue(makeStore(url: url).snapshot.total.isEmpty)
     }
 
     func testUnknownReasonKeysSurviveReload() throws {
@@ -133,8 +132,8 @@ final class NotShownStoreTests: XCTestCase {
         store.record(.noFocusedEditor, appIdentifier: "a.b")
         store.flush()
         store.reset()
-        XCTAssertEqual(store.snapshot.totalCount, 0)
-        XCTAssertEqual(makeStore(url: url).snapshot.totalCount, 0)
+        XCTAssertTrue(store.snapshot.total.isEmpty)
+        XCTAssertTrue(makeStore(url: url).snapshot.total.isEmpty)
     }
 
     func testTopReasonsOrderByCount() {

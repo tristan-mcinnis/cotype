@@ -28,14 +28,6 @@ public enum SparkleUpdaterPolicy: Equatable, Sendable {
     }
 }
 
-extension SparkleUpdaterPolicy {
-    /// True when the updater may schedule/perform automatic checks. A manual-only
-    /// or not-configured build must never check automatically.
-    public var mayAutoCheck: Bool {
-        self == .enabledAutomatic
-    }
-}
-
 /// One ordered startup step the in-app Sparkle updater must perform, so the
 /// user's automatic-check preference is applied BEFORE the updater is started
 /// (a privacy race if `startingUpdater: true` schedules a check before the
