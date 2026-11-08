@@ -284,8 +284,8 @@ public struct AppUsage: Equatable, Sendable, Identifiable {
 ///   bounds so no huge document text is ever written.
 /// - Aggregate metrics carry no content and are recorded even when logging is
 ///   off, so usage is never lost while sensitive context is never persisted.
-/// - Write failures are surfaced via `lastWriteError` / `writeFailureCount` and
-///   `onWriteFailure` instead of being swallowed silently, but recording never
+/// - Write failures are surfaced via `writeFailureCount` and `onWriteFailure`
+///   instead of being swallowed silently, but recording never
 ///   throws into the caller, so typing is never interrupted.
 /// - Retention pruning runs on init and on every content record.
 /// - `deleteAll` verifies both the samples and metrics files are gone and
@@ -336,7 +336,6 @@ public final class PersonalizationStore: @unchecked Sendable {
     /// UI state.
     public var onWriteFailure: (@Sendable (String) -> Void)?
     private(set) var writeFailureCount = 0
-    private(set) var lastWriteError: String?
 
     /// - Parameters:
     ///   - fileURL: where to persist content samples. Defaults to
@@ -407,12 +406,6 @@ public final class PersonalizationStore: @unchecked Sendable {
     /// Record a content-free pipeline-failure metric.
     public func recordFailed(appIdentifier: String) {
         recordMetric(.failed, appIdentifier: appIdentifier)
-    }
-
-    /// Legacy "rejected" alias retained for source compatibility: a historical
-    /// rejection maps to `.dismissed`.
-    public func recordRejected(prefix: String, completion: String, appIdentifier: String) {
-        recordDismissed(prefix: prefix, completion: completion, appIdentifier: appIdentifier)
     }
 
     /// Record a content-free aggregate metric. Safe to call at any time — it
@@ -498,11 +491,6 @@ public final class PersonalizationStore: @unchecked Sendable {
     /// Number of content samples. Independent of the aggregate metric counters.
     public var count: Int {
         queue.sync { samples.count }
-    }
-
-    /// The current bounded aggregate metrics.
-    public var metricCounts: PersonalizationMetrics {
-        queue.sync { metrics }
     }
 
     /// Per-outcome breakdown for the usage summary, always accurate (even when
@@ -619,13 +607,6 @@ public final class PersonalizationStore: @unchecked Sendable {
         clear()
     }
 
-    /// True when both the samples and metrics files hold no records. Flushes any
-    /// pending writes first so the result reflects the current in-memory state.
-    public func isOnDiskEmpty() -> Bool {
-        flush()
-        return queue.sync { verifyFilesEmpty() }
-    }
-
     /// Readable JSON export of the stored data: a versioned envelope containing
     /// the bounded aggregate metrics and the (content-capped) samples. Used by
     /// the Export action. It serializes the in-memory snapshot (immediately
@@ -642,11 +623,6 @@ public final class PersonalizationStore: @unchecked Sendable {
                 samples: samples
             ))) ?? Data()
         }
-    }
-
-    /// The most recent write error (nil if writes have been healthy).
-    public var currentWriteError: String? {
-        queue.sync { lastWriteError }
     }
 
     public var failureCount: Int {
@@ -786,7 +762,6 @@ public final class PersonalizationStore: @unchecked Sendable {
         // deadlock on the re-entrant serial queue.
         let callback = queue.sync { () -> (@Sendable (String) -> Void)? in
             writeFailureCount += 1
-            lastWriteError = message
             return onWriteFailure
         }
         callback?(message)

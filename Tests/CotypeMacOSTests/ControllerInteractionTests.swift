@@ -250,7 +250,7 @@ final class ControllerInteractionTests: XCTestCase {
 
         XCTAssertFalse(renderer.isShowing, "the injected renderer has no usable geometry")
         XCTAssertEqual(
-            personalization.metricCounts.shown,
+            personalization.usageSummary().shown,
             0,
             "a generated candidate must not be reported as shown when no overlay became visible"
         )
@@ -368,7 +368,7 @@ final class ControllerInteractionTests: XCTestCase {
 
         XCTAssertTrue(renderer.isShowing)
         XCTAssertEqual(
-            personalization.metricCounts.shown,
+            personalization.usageSummary().shown,
             1,
             "streaming redraws for one candidate must contribute only one shown metric"
         )

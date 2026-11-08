@@ -441,13 +441,14 @@ final class PersonalizationMigrationTests: XCTestCase {
         XCTAssertEqual(summary.failed, 1)
     }
 
-    func testMetricsAreVersionedAndBoundedPerApp() {
+    func testMetricsAreVersionedAndBoundedPerApp() throws {
         let store = makeStore("bounded")
         // Insert > maxPerAppEntries distinct apps so the bound kicks in.
         for index in 0..<(PersonalizationStore.maxPerAppEntries + 50) {
             store.recordMetric(.shown, appIdentifier: "com.example.app\(index)")
         }
-        let metrics = store.metricCounts
+        // The Export action is the one public view of the raw metrics record.
+        let metrics = try JSONDecoder().decode(PersonalizationExport.self, from: store.exportData()).metrics
         XCTAssertLessThanOrEqual(metrics.perApp.count, PersonalizationStore.maxPerAppEntries)
         XCTAssertEqual(metrics.schemaVersion, PersonalizationMetrics.currentSchemaVersion)
         XCTAssertEqual(metrics.total, PersonalizationStore.maxPerAppEntries + 50)
@@ -489,7 +490,7 @@ final class PersonalizationMigrationTests: XCTestCase {
             configURL: tempFile("flush-config-r"),
             metricsURL: metricsURL
         )
-        XCTAssertEqual(reloaded.metricCounts.total, 50)
+        XCTAssertEqual(reloaded.usageSummary().total, 50)
         XCTAssertEqual(reloaded.usageSummary().shown, 50)
     }
 
@@ -567,17 +568,27 @@ final class PersonalizationMigrationTests: XCTestCase {
     }
 
     func testDeleteAllRemovesFileContentsAndVerifies() {
-        let store = makeStore("delete")
+        let samplesURL = tempFile("delete-samples")
+        let metricsURL = tempFile("delete-metrics")
+        let store = PersonalizationStore(fileURL: samplesURL, configURL: tempFile("delete-config"), metricsURL: metricsURL)
+        // Records on disk: non-empty lines across the samples and metrics files.
+        func recordsOnDisk() -> Int {
+            [samplesURL, metricsURL].reduce(0) { sum, url in
+                let data = (try? Data(contentsOf: url)) ?? Data()
+                return sum + data.split(separator: 0x0A).filter { !$0.isEmpty }.count
+            }
+        }
+
         store.recordAccepted(prefix: "p", completion: "c", appIdentifier: "app")
+        store.flush()
         XCTAssertEqual(store.count, 1)
-        XCTAssertFalse(store.isOnDiskEmpty())
+        XCTAssertGreaterThan(recordsOnDisk(), 0, "the record reached disk before Delete All")
 
         let ok = store.deleteAll()
         XCTAssertTrue(ok, "Delete All should verify and report success")
         XCTAssertEqual(store.count, 0)
-        XCTAssertTrue(store.isOnDiskEmpty())
-        XCTAssertEqual(store.metricCounts.total, 0, "Delete All resets aggregate metrics too")
-        XCTAssertEqual(store.usageSummary().total, 0)
+        XCTAssertEqual(recordsOnDisk(), 0, "Delete All leaves no record in either file")
+        XCTAssertEqual(store.usageSummary().total, 0, "Delete All resets aggregate metrics too")
     }
 
     func testRetentionKeepUntilDeletedRetains() {
@@ -650,7 +661,6 @@ final class PersonalizationMigrationTests: XCTestCase {
 
         // Failure is recorded and surfaced, not thrown into the caller.
         XCTAssertGreaterThanOrEqual(store.failureCount, 1)
-        XCTAssertNotNil(store.currentWriteError)
         wait(for: [expectation], timeout: 1.0)
     }
 

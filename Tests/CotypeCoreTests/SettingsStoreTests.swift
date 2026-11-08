@@ -73,7 +73,7 @@ final class SettingsStoreTests: XCTestCase {
     func testRecordAndCount() {
         let store = privacyStore("record")
         store.recordAccepted(prefix: "func f() {", completion: "return 1", appIdentifier: "xcode")
-        store.recordRejected(prefix: "func g() {", completion: "return 2", appIdentifier: "xcode")
+        store.recordDismissed(prefix: "func g() {", completion: "return 2", appIdentifier: "xcode")
 
         XCTAssertEqual(store.count, 2)
     }
@@ -96,7 +96,7 @@ final class SettingsStoreTests: XCTestCase {
         try JSONEncoder().encode(legacy).write(to: url)
 
         let store = PersonalizationStore(fileURL: url, configURL: tempFileURL("legacy-config"), metricsURL: tempFileURL("legacy-metrics"))
-        store.recordRejected(prefix: "new", completion: "sample", appIdentifier: "mail")
+        store.recordDismissed(prefix: "new", completion: "sample", appIdentifier: "mail")
         store.flush()
 
         let reloaded = PersonalizationStore(fileURL: url, configURL: tempFileURL("legacy-config"), metricsURL: tempFileURL("legacy-metrics"))

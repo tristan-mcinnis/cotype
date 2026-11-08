@@ -61,7 +61,7 @@ final class WritingMemoryTests: XCTestCase {
     func testWritingCountsTowardNoUsageMetric() {
         let store = store()
         store.recordWriting(fromPrefix: "so i think we should go ", appIdentifier: "chat")
-        XCTAssertTrue(store.metricCounts.isEmpty)
+        XCTAssertEqual(store.usageSummary(), PersonalizationUsageSummary())
     }
 
     func testOldestWritingIsDroppedPastTheCap() {
