@@ -151,17 +151,6 @@ final class UpdateManifestTests: XCTestCase {
         XCTAssertEqual(ReleaseVersionOrdering.compare("1.0.0-rc.1+build.5", "1.0.0-rc.1"), .same)
     }
 
-    func testPrereleaseMonotonicity() {
-        // Build numbers always advance over time; the prerelease ships first
-        // (build 121) and the full release later (build 122).
-        let release = makeManifest(version: "1.0.0", buildNumber: "122")
-        let prerelease = makeManifest(version: "1.0.0-rc.1", buildNumber: "121")
-        // Shipping a prerelease AFTER the release is a version downgrade.
-        XCTAssertFalse(ReleaseVersionOrdering.isMonotonic(next: prerelease, previous: release))
-        // Promoting a prerelease to a release with a higher build is a valid bump.
-        XCTAssertTrue(ReleaseVersionOrdering.isMonotonic(next: release, previous: prerelease))
-    }
-
     // MARK: Build-number monotonicity
 
     func testBuildMonotonicity() {
@@ -169,20 +158,6 @@ final class UpdateManifestTests: XCTestCase {
         XCTAssertFalse(ReleaseVersionOrdering.monotonicBuildNumber(nextBuild: "120", previousBuild: "120"))
         XCTAssertFalse(ReleaseVersionOrdering.monotonicBuildNumber(nextBuild: "119", previousBuild: "120"))
         XCTAssertFalse(ReleaseVersionOrdering.monotonicBuildNumber(nextBuild: "0", previousBuild: "120"))
-    }
-
-    func testManifestMonotonicity() {
-        let older = makeManifest(version: "0.1.0", buildNumber: "119")
-        let newer = makeManifest(version: "0.1.1", buildNumber: "120")
-        XCTAssertTrue(ReleaseVersionOrdering.isMonotonic(next: newer, previous: older))
-
-        // Same version but build did not advance -> not monotonic.
-        let sameVersion = makeManifest(version: "0.1.1", buildNumber: "120")
-        XCTAssertFalse(ReleaseVersionOrdering.isMonotonic(next: sameVersion, previous: newer))
-
-        // Version downgrade -> not monotonic.
-        let downgrade = makeManifest(version: "0.1.0", buildNumber: "140")
-        XCTAssertFalse(ReleaseVersionOrdering.isMonotonic(next: downgrade, previous: newer))
     }
 
     // MARK: Ed25519 signing round-trip

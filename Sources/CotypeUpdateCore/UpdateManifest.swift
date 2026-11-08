@@ -348,26 +348,6 @@ public enum ReleaseVersionOrdering {
         compare(next, previous) == .descending
     }
 
-    /// True when the marketing version is same-or-newer than the previous one
-    /// and the build number has increased, so an update never rolls back.
-    ///
-    /// `compare(next, previous)` is `.descending` when `next` is the newer
-    /// version (it sorts after `previous`), `.same` when equal, and `.ascending`
-    /// when `next` would downgrade.
-    public static func isMonotonic(next: UpdateManifest, previous: UpdateManifest) -> Bool {
-        let versionOrder = compare(next.version, previous.version)
-        switch versionOrder {
-        case .ascending:
-            // next.version < previous.version → a downgrade. Never allowed.
-            return false
-        case .invalid:
-            return false
-        case .descending, .same:
-            // Same version or a bump: the build number must still advance.
-            return monotonicBuildNumber(nextBuild: next.buildNumber, previousBuild: previous.buildNumber)
-        }
-    }
-
     /// Build-number monotonicity: the next build must be a strictly larger
     /// positive integer than the previous.
     public static func monotonicBuildNumber(nextBuild: String, previousBuild: String) -> Bool {

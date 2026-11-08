@@ -192,10 +192,6 @@ public struct PerformanceGates: Codable, Equatable, Sendable {
         self.maxColdLoadSeconds = maxColdLoadSeconds
     }
 
-    /// Defaults for the model release lane: at least 20 tokens/s and a cold load
-    /// under 15 s.
-    public static let modelRelease = PerformanceGates(minTokensPerSecond: 20, maxColdLoadSeconds: 15)
-
     /// Evaluate the gates. A required gate with a missing (nil) metric fails, so
     /// we never report an unavailable measurement as passing.
     public func passes(tokensPerSecond: Double?, coldLoadSeconds: Double?) -> Bool {

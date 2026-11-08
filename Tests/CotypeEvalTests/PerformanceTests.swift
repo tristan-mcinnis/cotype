@@ -4,27 +4,30 @@ import CotypeCore
 
 final class PerformanceGatesTests: XCTestCase {
 
+    /// Release-style gates: at least 20 tokens/s and a cold load under 15 s.
+    private let releaseGates = PerformanceGates(minTokensPerSecond: 20, maxColdLoadSeconds: 15)
+
     func testPassesWhenThroughputAndColdLoadMeetThresholds() {
-        let gates = PerformanceGates.modelRelease
+        let gates = releaseGates
         XCTAssertTrue(gates.passes(tokensPerSecond: 45, coldLoadSeconds: 8.0))
         XCTAssertTrue(gates.passes(tokensPerSecond: 20, coldLoadSeconds: 15.0), "inclusive bounds pass")
     }
 
     func testFailsWhenThroughputTooLow() {
-        let gates = PerformanceGates.modelRelease
+        let gates = releaseGates
         XCTAssertFalse(gates.passes(tokensPerSecond: 19.9, coldLoadSeconds: 8.0))
         XCTAssertFalse(gates.passes(tokensPerSecond: 0, coldLoadSeconds: 8.0))
     }
 
     func testFailsWhenColdLoadTooSlow() {
-        let gates = PerformanceGates.modelRelease
+        let gates = releaseGates
         XCTAssertFalse(gates.passes(tokensPerSecond: 45, coldLoadSeconds: 15.5))
     }
 
     func testRequiredGateWithUnavailableMetricFails() {
         // A required threshold with a nil (unmeasured) metric must FAIL — we
         // never report an unavailable measurement as passing.
-        let gates = PerformanceGates.modelRelease
+        let gates = releaseGates
         XCTAssertFalse(gates.passes(tokensPerSecond: nil, coldLoadSeconds: nil),
                        "an unavailable required metric must fail the gate")
         // Even if only one is unavailable.
@@ -39,7 +42,7 @@ final class PerformanceGatesTests: XCTestCase {
     }
 
     func testRequirementsDescription() {
-        XCTAssertEqual(PerformanceGates.modelRelease.requirementsDescription, "tokens/s >= 20, cold load <= 15s")
+        XCTAssertEqual(releaseGates.requirementsDescription, "tokens/s >= 20, cold load <= 15s")
         XCTAssertEqual(PerformanceGates().requirementsDescription, "none")
     }
 }
@@ -87,7 +90,7 @@ final class PerformanceProvenanceTests: XCTestCase {
             provenance: MachineProvenance(gitCommit: "abc123", osName: "macOS", osVersion: "15.0.0", machineArch: "arm64"),
             config: EvalRunConfig(maxTokens: 32, caseSetCount: 1),
             performance: PerformanceSummary(averageTokensPerSecond: 10, coldLoadSeconds: 5.0),
-            gates: .modelRelease,
+            gates: PerformanceGates(minTokensPerSecond: 20, maxColdLoadSeconds: 15),
             gatesPassed: false,
             record: summary.jsonRecord(results: [result])
         )
