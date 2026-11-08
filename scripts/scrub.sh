@@ -26,7 +26,7 @@ rm -f "$control"
 hits=$(git ls-files -z | grep -zv '^scripts/scrub\.sh$' | xargs -0 grep -IlE "$PATTERN" 2>/dev/null || true)
 
 mail=$(git ls-files -z | grep -zv '^scripts/scrub\.sh$' | xargs -0 grep -IoE "$EMAIL" 2>/dev/null \
-  | grep -viE '@(example\.(com|org|net)|noreply\.github\.com|users\.noreply\.github\.com|anthropic\.com)$' \
+  | grep -viE '@(example\.(com|org|net)|[a-z0-9.-]+\.example|noreply\.github\.com|users\.noreply\.github\.com|anthropic\.com)$' \
   | grep -viE '^docs/licenses/[^:]*:' || true)
 
 if [ -n "$hits" ] || [ -n "$mail" ]; then
