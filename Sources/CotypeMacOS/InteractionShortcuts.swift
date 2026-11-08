@@ -238,7 +238,6 @@ public struct GlobalKeyRouter {
         self.pressedBaseKey = pressedBaseKey
     }
 
-    public static let tabKey: UInt16 = 48
     public static let escapeKey: UInt16 = 53
 
     /// Route a single key event.
@@ -289,14 +288,6 @@ public struct GlobalKeyRouter {
         }
 
         return .passthrough
-    }
-
-    // MARK: - Layout helpers (testable)
-
-    /// Convert a trigger into the set of key codes that resolve to it in the
-    /// current layout. Used by the recorder to validate a chosen chord.
-    public static func resolvedKeyCodes(for trigger: TriggerShortcut, baseKey: (String) -> [UInt16]) -> [UInt16] {
-        baseKey(trigger.key)
     }
 }
 

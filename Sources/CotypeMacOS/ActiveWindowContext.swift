@@ -2,13 +2,6 @@ import AppKit
 import ApplicationServices
 import Foundation
 
-/// Supplies bounded, in-memory context from the active window. Implementations
-/// must never persist or log the returned text.
-@MainActor
-protocol ActiveWindowContextProviding {
-    func context(in app: NSRunningApplication, excluding editor: AXUIElement) -> String
-}
-
 /// Pure normalization and bounding for visible-window text fragments.
 enum ActiveWindowContextCompactor {
     static func compact(_ fragments: [String], maxChars: Int) -> String {
@@ -43,7 +36,7 @@ enum ActiveWindowContextCompactor {
 /// deliberately small: a second full-tree walk is expensive on large documents
 /// and the focused-field text is what completion actually needs.
 @MainActor
-struct AXActiveWindowContextCollector: ActiveWindowContextProviding {
+struct AXActiveWindowContextCollector {
     var maxChars = 800
     var maxNodes = 250
     var maxDepth = 12

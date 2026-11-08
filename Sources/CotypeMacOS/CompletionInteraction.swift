@@ -132,8 +132,6 @@ public struct CompletionInteraction: Equatable, Sendable {
 
     public var isAwaitingAccept: Bool { state == .awaitingAccept }
     public var isGenerating: Bool { state == .generating }
-    public var isDebouncing: Bool { state == .debouncing }
-    public var isCoolingDown: Bool { state == .cooldown }
 
     /// Handle one event, returning the effects the driver must perform.
     /// The call updates `state`/`ghost` first, then effects are emitted.

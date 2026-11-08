@@ -9,9 +9,6 @@ import CotypeCore
 /// daemon, cold model, bad registry response, or unsafe endpoint surfaces as
 /// an error.
 public enum DaemonRoutedEngine {
-    /// Retained only so old preferences can be identified/removed. Streaming no
-    /// longer trusts this hidden value; the Local Models registry is authoritative.
-    public static let endpointKey = "localModelsDaemonEndpoint"
     public static let modelKey = "localModelsDaemonModel"
     /// Generation-tuning keys. The budget key is the explicit-override value;
     /// `TokenBudget` decides whether it applies at all.

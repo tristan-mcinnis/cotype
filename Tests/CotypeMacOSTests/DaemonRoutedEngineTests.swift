@@ -12,7 +12,8 @@ final class DaemonRoutedEngineTests: XCTestCase {
 
     func testCustomModelAliasIsHonoredButHiddenEndpointOverrideIsIgnored() {
         let defaults = makeUserDefaults()
-        defaults.set("https://remote.example/v1", forKey: DaemonRoutedEngine.endpointKey)
+        // A stale endpoint preference from an older build must not redirect streaming.
+        defaults.set("https://remote.example/v1", forKey: "localModelsDaemonEndpoint")
         defaults.set("other-model", forKey: DaemonRoutedEngine.modelKey)
         let engine = DaemonRoutedEngine.daemonEngine(defaults: defaults)
         XCTAssertEqual(engine.modelAlias, "other-model")

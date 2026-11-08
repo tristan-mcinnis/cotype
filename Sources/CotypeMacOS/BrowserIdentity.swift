@@ -102,18 +102,3 @@ public struct AXBrowserDomainProvider: BrowserDomainProviding {
     }
 
 }
-
-/// A fixed provider for tests and for code paths that deliberately have no
-/// browser identity.
-public struct FixedBrowserDomainProvider: BrowserDomainProviding {
-    public var host: String?
-
-    public init(host: String? = nil) {
-        self.host = host
-    }
-
-    public func currentDomain(appIdentifier: String) -> String? {
-        guard AppCompatibility.isBrowser(appIdentifier) else { return nil }
-        return host
-    }
-}

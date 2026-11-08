@@ -28,24 +28,6 @@ public struct AXInsertionTargetVerifier: InsertionTargetVerifier {
     }
 }
 
-/// A verifier that always reports safe — used when only the pasteboard itself
-/// must be guarded (e.g. in tests) or when the target is unknown.
-public struct UnconditionalTargetVerifier: InsertionTargetVerifier {
-    public init() {}
-    @MainActor public func verifyTarget(appIdentifier: String) -> Bool { true }
-}
-
-/// Verifies against an injected sequence of results. Test seam.
-public final class StubTargetVerifier: InsertionTargetVerifier, @unchecked Sendable {
-    private let results: [Bool]
-    private var index = 0
-    public init(_ results: [Bool]) { self.results = results }
-    @MainActor public func verifyTarget(appIdentifier: String) -> Bool {
-        defer { index = min(index + 1, results.count) }
-        return results[min(index, results.count - 1)]
-    }
-}
-
 // MARK: - Focused-field identity provider (full element/window capture)
 
 /// Production adapter that resolves the frontmost app's focused element and
