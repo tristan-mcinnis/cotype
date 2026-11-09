@@ -903,15 +903,19 @@ public final class CompletionController: ObservableObject {
                     // inserted text. Re-reading "whatever is focused now" creates
                     // a race where a newly focused field can become authorized for
                     // the next segment.
-                    if keepAccepting {
+                    let ownsRequest = self.activeRenderGenerationID == epoch
+                    if ownsRequest, keepAccepting {
                         self.activeFocusTarget = Self.targetAfterInsertion(expectedTarget, text: text)
                     }
-                    if AppCompatibility.isTerminal(appIdentifier) {
+                    if ownsRequest, AppCompatibility.isTerminal(appIdentifier) {
                         // The typed-in completion is now on screen after the
                         // user's keys; the next caret match must include it.
                         TerminalCaret.noteTyped(text)
                     }
-                    if chainEnding { self.clearRequestIdentity() }
+                    // Insertion may suspend through a newer generation. Its
+                    // outcome still counts, but its identity belongs to that
+                    // older request and cannot clear the current one.
+                    if ownsRequest, chainEnding { self.clearRequestIdentity() }
                     if self.contentLoggingEnabled {
                         self.personalization.recordAccepted(
                             prefix: prefix,
@@ -933,9 +937,12 @@ public final class CompletionController: ObservableObject {
     /// dismisses its ghost only if it is still the active candidate.
     private func failCommitChain(_ epoch: Int, appIdentifier: String, chainEnding: Bool, message: String) {
         failedCommitEpochs.insert(epoch)
+        personalization.recordFailed(appIdentifier: appIdentifier)
+        // A retired insertion can fail after a new preview is ready. Record its
+        // outcome without dismissing or changing the newer request's status.
+        guard epoch == activeRenderGenerationID else { return }
         dismissCommitRemainder(epoch: epoch)
         if chainEnding { clearRequestIdentity() }
-        personalization.recordFailed(appIdentifier: appIdentifier)
         lastError = message
     }
 

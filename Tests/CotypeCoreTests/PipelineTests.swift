@@ -51,7 +51,69 @@ private struct SingleChunkEngine: InferenceEngine {
     }
 }
 
+/// Deliberately violates the terminal-event contract so the consumer must
+/// preserve the completed candidate despite a misbehaving adapter.
+private struct EventsAfterEndEngine: InferenceEngine {
+    enum Failure: Error { case afterEnd }
+    let name = "events-after-end"
+    var failsAfterEnd = false
+
+    func stream(prompt: Prompt) -> AsyncThrowingStream<CompletionEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(.token("hello"))
+            continuation.yield(.end)
+            continuation.yield(.token(" world"))
+            if failsAfterEnd {
+                continuation.finish(throwing: Failure.afterEnd)
+            } else {
+                continuation.finish()
+            }
+        }
+    }
+}
+
 final class PipelineTests: XCTestCase {
+
+    func testEndFreezesRenderedAndAcceptedCandidate() async throws {
+        let renderer = RecordingRenderer()
+        let inserter = RecordingInserter()
+        let pipeline = CompletionPipeline(
+            contextProvider: StaticContextProvider(),
+            promptBuilder: TemplatePromptBuilder(),
+            engine: EventsAfterEndEngine(),
+            renderer: renderer,
+            inserter: inserter
+        )
+
+        let result = try await pipeline.completeWithOutcome(CompletionRequest(prefix: "say "))
+        try await pipeline.accept(result.text)
+
+        XCTAssertEqual(result.text, "hello")
+        XCTAssertEqual(result.rawText, "hello")
+        XCTAssertEqual(result.outcome, .suggestion("hello"))
+        XCTAssertEqual(result.timings.tokenCount, 1)
+        XCTAssertFalse(result.timings.stoppedEarly)
+        XCTAssertTrue(renderer.presented.allSatisfy { $0 == "hello" })
+        XCTAssertEqual(inserter.inserted, ["hello"])
+    }
+
+    func testErrorAfterEndCannotInvalidateCompletedSuggestion() async throws {
+        let renderer = RecordingRenderer()
+        let pipeline = CompletionPipeline(
+            contextProvider: StaticContextProvider(),
+            promptBuilder: TemplatePromptBuilder(),
+            engine: EventsAfterEndEngine(failsAfterEnd: true),
+            renderer: renderer,
+            inserter: RecordingInserter()
+        )
+
+        let result = try await pipeline.completeWithOutcome(CompletionRequest(prefix: "say "))
+
+        XCTAssertEqual(result.outcome, .suggestion("hello"))
+        XCTAssertEqual(pipeline.lastOutcome, result.outcome)
+        XCTAssertEqual(renderer.presented.last, "hello")
+        XCTAssertEqual(renderer.clearCount, 0)
+    }
 
     func testPipelineProducesFullCompletion() async throws {
         let pipeline = CompletionPipeline(

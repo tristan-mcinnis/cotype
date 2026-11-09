@@ -387,6 +387,47 @@ final class LocalModelsStatusTests: XCTestCase {
         XCTAssertLessThan(elapsed, .seconds(3), "cancellation must abandon the read promptly")
     }
 
+    /// A cancelled transport can complete after its replacement starts. Its
+    /// cleanup must not abandon ownership of that replacement's cancellation.
+    func testLateCancelledReadCannotClearReplacement() async {
+        let firstGate = FetchGate()
+        let replacementGate = FetchGate()
+        let calls = FetchCounter()
+        let refresher = LocalModelsStatusRefresher {
+            await calls.increment()
+            let count = await calls.value()
+            if count == 1 {
+                await firstGate.markStarted()
+                await firstGate.waitForRelease()
+            } else if count == 2 {
+                await replacementGate.markStarted()
+                await replacementGate.waitForRelease()
+                return Self.reachableStatus(alias: Task.isCancelled ? "cancelled" : "not-cancelled")
+            }
+            return Self.reachableStatus(alias: "gemma-it")
+        }
+
+        let first = Task { await refresher.refresh() }
+        await firstGate.waitUntilStarted()
+        await refresher.cancelInFlight()
+        let replacement = Task { await refresher.refresh() }
+        await replacementGate.waitUntilStarted()
+
+        // Deterministically finish the retired read while its replacement is
+        // parked. Then cancellation must still reach the replacement task.
+        await firstGate.release()
+        _ = await first.value
+        await refresher.cancelInFlight()
+        await replacementGate.release()
+        let replacementStatus = await replacement.value
+        XCTAssertEqual(replacementStatus.configuredModelAlias, "cancelled")
+
+        let next = await refresher.refresh()
+        XCTAssertEqual(next.configuredModelAlias, "gemma-it")
+        let total = await calls.value()
+        XCTAssertEqual(total, 3)
+    }
+
     // MARK: - Helpers
 
     private static func reachableStatus(alias: String) -> LocalModelsStatus {

@@ -151,7 +151,9 @@ public final class CompletionPipeline {
                         break generation
                     }
                 case .end:
-                    break
+                    // End is terminal even if an adapter leaves its transport
+                    // open or queues more events after completing the candidate.
+                    break generation
                 }
             }
             // Even if an engine ends normally on cancellation, do not finalize a

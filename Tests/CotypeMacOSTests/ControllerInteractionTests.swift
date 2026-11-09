@@ -510,6 +510,66 @@ final class ControllerInteractionTests: XCTestCase {
         XCTAssertFalse(controller.currentCandidate.isEmpty)
     }
 
+    // MARK: - Suspended insertion ownership
+
+    func testOldFullAcceptSuccessPreservesNewRequest() async {
+        await assertOldInsertionPreservesNewRequest(stepped: false, fails: false)
+    }
+
+    func testOldSteppedAcceptSuccessPreservesNewRequest() async {
+        await assertOldInsertionPreservesNewRequest(stepped: true, fails: false)
+    }
+
+    func testOldFullAcceptFailurePreservesNewRequest() async {
+        await assertOldInsertionPreservesNewRequest(stepped: false, fails: true)
+    }
+
+    func testOldSteppedAcceptFailurePreservesNewRequest() async {
+        await assertOldInsertionPreservesNewRequest(stepped: true, fails: true)
+    }
+
+    private func assertOldInsertionPreservesNewRequest(stepped: Bool, fails: Bool) async {
+        let defaults = makeUserDefaults()
+        let provider = StubFocusIdentityProvider(Self.stableFocus)
+        let inserter = SuspendedFirstInserter()
+        let renderer = PresentRecordingRenderer()
+        let controller = CompletionController(
+            personalization: makePersonalizationStore(),
+            overrides: AppOverridesStore(fileURL: tempFileURL("overrides")),
+            websiteRules: makeWebsiteRulesStore(),
+            inserter: inserter,
+            renderer: renderer,
+            pipelineEngineOverride: ScriptedEngine(["old candidate", "new candidate"], wordDelayNanoseconds: 0),
+            frontmostAppProvider: { "com.example.editor" },
+            focusIdentityProvider: provider,
+            userDefaults: defaults
+        )
+        XCTAssertTrue(controller.trigger())
+        let oldReady = await waitUntil { controller.phase == .awaitingAccept }
+        XCTAssertTrue(oldReady)
+        if stepped { controller.acceptNextWord() } else { controller.accept() }
+        let suspended = await waitUntil { inserter.isSuspended }
+        XCTAssertTrue(suspended)
+
+        // A different field owns the new generation while the old insert is
+        // suspended (as it can be during clipboard restoration).
+        provider.current = FocusTarget(
+            appIdentifier: "com.example.editor", windowIdentity: 1,
+            elementIdentity: 999, selection: .unsupported
+        )
+        XCTAssertTrue(controller.trigger())
+        let newReady = await waitUntil { controller.currentCandidate == "new candidate" }
+        XCTAssertTrue(newReady)
+        inserter.finishFirst(fails: fails)
+        let redrawn = await waitUntil { renderer.presented.contains("new candidate") }
+        XCTAssertTrue(redrawn)
+        XCTAssertEqual(controller.phase, .awaitingAccept)
+        XCTAssertNil(controller.lastError, "an old insertion failure must not replace the new request's status")
+        controller.accept()
+        let accepted = await waitUntil { inserter.inserted.contains("new candidate") }
+        XCTAssertTrue(accepted, "the new request must retain its own focus identity")
+    }
+
     // MARK: - Focus revalidation between queued segments
 
     func testRapidTabReReadsCurrentFocusTarget() async {
@@ -780,5 +840,39 @@ private struct SensitiveThrowingEngine: InferenceEngine, @unchecked Sendable {
         AsyncThrowingStream { continuation in
             continuation.finish(throwing: SensitiveContextError.gated(.sensitiveApp))
         }
+    }
+}
+
+/// The lock guards the continuation and recorded inserts across executor hops.
+private final class SuspendedFirstInserter: CompletionInserter, @unchecked Sendable {
+    private let lock = NSLock()
+    private var first = true
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var recorded: [String] = []
+    var isSuspended: Bool { lock.withLock { continuation != nil } }
+    var inserted: [String] { lock.withLock { recorded } }
+
+    func insert(_ text: String) async throws {
+        let shouldSuspend = lock.withLock {
+            let result = first
+            first = false
+            return result
+        }
+        if shouldSuspend {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.withLock { self.continuation = continuation }
+            }
+        }
+        lock.withLock { recorded.append(text) }
+    }
+
+    func finishFirst(fails: Bool) {
+        let pending = lock.withLock {
+            let pending = continuation
+            continuation = nil
+            return pending
+        }
+        if fails { pending?.resume(throwing: CocoaError(.fileWriteUnknown)) }
+        else { pending?.resume() }
     }
 }

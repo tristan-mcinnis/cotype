@@ -22,6 +22,9 @@ public protocol PromptBuilder {
 public protocol InferenceEngine {
     /// Human-readable name, surfaced in logs/events.
     var name: String { get }
+    /// Yield tokens followed by `.end`, then finish the stream. `.end` is
+    /// terminal: consumers finalize the candidate without reading later events
+    /// or transport errors. Finishing without `.end` also ends generation.
     func stream(prompt: Prompt) -> AsyncThrowingStream<CompletionEvent, Error>
 }
 

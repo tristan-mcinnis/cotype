@@ -173,7 +173,11 @@ public actor LocalModelsStatusRefresher {
     public typealias Fetch = @Sendable () async -> LocalModelsStatus
 
     private let fetch: Fetch
-    private var inFlight: Task<LocalModelsStatus, Never>?
+    private struct Read {
+        let id = UUID()
+        let task: Task<LocalModelsStatus, Never>
+    }
+    private var inFlight: Read?
 
     /// Seam for tests and for callers that own their transport.
     public init(fetch: @escaping Fetch) {
@@ -186,18 +190,20 @@ public actor LocalModelsStatusRefresher {
 
     /// The current status, reusing the in-flight read when one is already running.
     public func refresh() async -> LocalModelsStatus {
-        if let inFlight { return await inFlight.value }
+        if let inFlight { return await inFlight.task.value }
         let fetch = self.fetch
-        let task = Task { await fetch() }
-        inFlight = task
-        let status = await task.value
-        inFlight = nil
+        let read = Read(task: Task { await fetch() })
+        inFlight = read
+        let status = await read.task.value
+        // Cancellation can retire this read and let a replacement start while
+        // its transport unwinds. Only the current read may clear its handle.
+        if inFlight?.id == read.id { inFlight = nil }
         return status
     }
 
     /// Abandon the in-flight read (in-flight URLSession work is cancelled).
     public func cancelInFlight() {
-        inFlight?.cancel()
+        inFlight?.task.cancel()
         inFlight = nil
     }
 }
