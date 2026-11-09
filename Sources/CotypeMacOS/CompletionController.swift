@@ -76,7 +76,7 @@ public final class CompletionController: ObservableObject {
     /// accept the same host must still be shown, otherwise the site rule that
     /// allowed this candidate no longer applies and nothing is inserted.
     private var activeWebsiteDomain: String?
-    private var flow = CompletionFlow()
+    private(set) var flow = CompletionFlow()
     private var frontmostChangeObserver: NSObjectProtocol?
 
     // MARK: - Typing interaction loop
@@ -84,7 +84,7 @@ public final class CompletionController: ObservableObject {
     /// The pure interaction loop state machine. It decides *when* to generate,
     /// cancel, accept, type-through, and dismiss; this controller runs the
     /// resulting effects (timers, pipeline, insertion).
-    private var interaction = CompletionInteraction()
+    private(set) var interaction = CompletionInteraction()
 
     /// Pause window before a generation auto-triggers after typing stops.
     /// TabType defaults to 90 ms and cotabby/KeyType to 15-55 ms; the local
@@ -124,8 +124,9 @@ public final class CompletionController: ObservableObject {
     /// for them are refused, and a later generation is unaffected because it has a
     /// distinct epoch.
     private var failedCommitEpochs: Set<Int> = []
-    /// Accepted segments queued or being inserted.
-    private var commitsInFlight = 0
+    /// Accepted segments queued or being inserted, scoped to their render epoch.
+    /// An older clipboard restore must not delay a newer preview.
+    private var commitsInFlight: [Int: Int] = [:]
 
     public init(
         personalization: PersonalizationStore = PersonalizationStore(),
@@ -545,9 +546,7 @@ public final class CompletionController: ObservableObject {
         if result.isEmpty {
             CotypeLog.loop.info("none: no usable suggestion for \(self.activeAppIdentifier, privacy: .public)")
             noteNotShown(abstention ?? .emptyCompletion, appIdentifier: activeAppIdentifier)
-            flow.finishWithoutCandidate()
-            applyInteraction(.noSuggestion)
-            clearRequestIdentity()
+            finishWithoutCandidate()
         } else {
             flow.candidateReady()
             applyInteraction(.generated(result))
@@ -560,9 +559,7 @@ public final class CompletionController: ObservableObject {
         case .gated(let category): noteNotShown(NotShownReason(gate: category), appIdentifier: activeAppIdentifier)
         case .unreadable: noteNotShown(.unreadableContext, appIdentifier: activeAppIdentifier)
         }
-        collectingRenderer?.clear()
-        applyInteraction(.noSuggestion)
-        clearRequestIdentity()
+        finishWithoutCandidate()
         lastError = Self.message(for: gate)
     }
 
@@ -570,9 +567,7 @@ public final class CompletionController: ObservableObject {
         CotypeLog.loop.error("fail: \((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)), privacy: .public) in \(self.activeAppIdentifier, privacy: .public)")
         let appIdentifier = activeAppIdentifier
         noteNotShown(.engineFailure, appIdentifier: appIdentifier)
-        collectingRenderer?.clear()
-        applyInteraction(.noSuggestion)
-        clearRequestIdentity()
+        finishWithoutCandidate()
         lastError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
         personalization.recordFailed(appIdentifier: appIdentifier)
     }
@@ -580,8 +575,7 @@ public final class CompletionController: ObservableObject {
     private func releaseAfterCancel() {
         let appIdentifier = activeAppIdentifier
         noteNotShown(.cancelledWhileGenerating, appIdentifier: appIdentifier)
-        clearActiveState()
-        flow.cancel()
+        finishWithoutCandidate()
         personalization.recordCanceled(appIdentifier: appIdentifier)
     }
 
@@ -765,7 +759,7 @@ public final class CompletionController: ObservableObject {
         // While a stepped word is landing, the caret has not moved yet. Leave the
         // ghost as it is: drawing the remainder now would put it over the word
         // being inserted. The commit redraws it when the insert is done.
-        if commitsInFlight > 0, !interaction.ghost.isEmpty { return }
+        if commitsInFlight[activeRenderGenerationID, default: 0] > 0, !interaction.ghost.isEmpty { return }
 
         if interaction.ghost != lastRenderedGhost {
             lastRenderedGhost = interaction.ghost
@@ -823,6 +817,7 @@ public final class CompletionController: ObservableObject {
         }
         flow.cancel()
         pipelineTask?.cancel()
+        debounceTask?.cancel()
         collectingRenderer?.clear()
         lastRenderedGhost = nil
     }
@@ -856,19 +851,20 @@ public final class CompletionController: ObservableObject {
         if keepAccepting {
             activePrefix = prefix + text
         }
-        // Deliberately do NOT clearActiveState here: the in-flight commit chain
-        // still needs `activeFocusTarget` (and the request identity) to revalidate
+        // Keep the request identity while the in-flight commit chain still
+        // needs `activeFocusTarget` to revalidate
         // each queued segment. The last chain task clears it after the final insert
         // (a worked example of the orchestrator's "full accept may capture its
         // target before clear state").
 
         let previous = commitTask
-        commitsInFlight += 1
+        commitsInFlight[epoch, default: 0] += 1
         commitTask = Task { [weak self] in
             await previous?.value
             guard let self else { return }
             defer {
-                self.commitsInFlight -= 1
+                let remaining = self.commitsInFlight[epoch, default: 1] - 1
+                self.commitsInFlight[epoch] = remaining > 0 ? remaining : nil
                 self.refreshFromInteraction()
             }
             // Skip if this chain was superseded by a fresh generation or already
@@ -962,10 +958,12 @@ public final class CompletionController: ObservableObject {
         )
     }
 
-    private func clearActiveState() {
+    /// Every unsuccessful terminal path retires the request and settles all
+    /// projections together, so late stream deliveries cannot revive a ghost.
+    private func finishWithoutCandidate() {
+        flow.finishWithoutCandidate()
         collectingRenderer?.clear()
-        currentCandidate = ""
-        phase = .idle
+        applyInteraction(.noSuggestion)
         clearRequestIdentity()
         lastRenderedGhost = nil
     }

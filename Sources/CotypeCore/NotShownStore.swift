@@ -121,6 +121,12 @@ public final class NotShownStore: @unchecked Sendable {
     private var state: NotShownSnapshot
     private var dirty = false
     private var writeScheduled = false
+    private var writeFailures = 0
+
+    /// Content-free persistence health. Failed data remains dirty for the next
+    /// flush or mutation; each persistence operation makes at most two attempts.
+    public var failureCount: Int { lock.withLock { writeFailures } }
+    public var hasPendingWrites: Bool { lock.withLock { dirty } }
 
     public init(
         fileURL: URL? = nil,
@@ -185,15 +191,27 @@ public final class NotShownStore: @unchecked Sendable {
     }
 
     private func persist() {
-        let payload: Data? = lock.withLock {
-            writeScheduled = false
-            guard dirty else { return nil }
-            dirty = false
-            return Self.encode(state)
+        // One immediate retry handles a transient failure without scheduling an
+        // unbounded retry loop when the disk remains unavailable.
+        for _ in 0..<2 {
+            let payload: Data? = lock.withLock {
+                writeScheduled = false
+                guard dirty else { return nil }
+                dirty = false
+                return Self.encode(state)
+            }
+            guard let payload else { return }
+            do {
+                try writer.write(payload, to: fileURL)
+                SecurePermissions.apply(to: fileURL)
+                return
+            } catch {
+                lock.withLock {
+                    dirty = true
+                    writeFailures += 1
+                }
+            }
         }
-        guard let payload else { return }
-        try? writer.write(payload, to: fileURL)
-        SecurePermissions.apply(to: fileURL)
     }
 
     private func bump(_ entry: inout NotShownSnapshot.Entry?, at stamp: Date) {

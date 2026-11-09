@@ -98,41 +98,33 @@ acceptance; no model lifecycle policy or permission is changed.
 | Installation | stage/verify → stop/back up old → swap/verify → discard backup → relaunch | `scripts/install.sh`; expected swap/verification failures restore backup |
 | Verification lane | deterministic gates → optional warm-model eval → pass/fail/skip | `scripts/verify.sh`; deterministic gate does not require personal editor content |
 
-## Remaining findings and behavior choices
+## Follow-up: all eleven findings resolved
 
-These are source-review findings, not claims of reproduced runtime failures. They
-were left outside the three regression-backed corrections above.
+The follow-up keeps the existing machines and makes their transition ownership
+explicit. There are no deferred app findings from this audit.
 
-- **Completion terminal-state drift:** controller privacy/failure paths settle
-  interaction but leave `CompletionFlow` generating; cancellation settles flow
-  and published phase without settling interaction. Consolidate terminal
-  transitions with controller-level cancellation/privacy/error regressions.
-- **Readiness disagreement:** UI often treats warmth as readiness; engine also
-  requires reachability, registration and a safe loopback endpoint. Derive a
-  shared readiness projection before changing user-facing labels/actions.
-- **Practice request identity:** text equality admits an ABA edit (A → B → A).
-  Use request identity and cancellation checks for all final/error updates.
-- **Login error visibility:** `LaunchAtLoginModel.setEnabled` catches an error,
-  then `refresh()` replaces its status message. Separate OS status from the
-  most recent operation outcome.
-- **Permission observer lifetime:** repeating timer lacks teardown and the
-  notification token is discarded. Tie both to the observer lifetime.
-- **Pipeline diagnostics:** context/prompt errors precede the generation catch
-  and may leave prior outcome/timing metadata. Reset per-request diagnostics at
-  entry and test failures at each stage.
-- **Not-shown write failure:** dirty state is cleared before a swallowed writer
-  error. Add an explicit failed/retry state without creating an endless retry.
-- **About subprocess lifetime:** notarization subprocess has no timeout. Bound
-  execution and define a user-visible timeout outcome.
-- **Install interruption:** EXIT cleanup removes the rollback backup even on an
-  unexpected exit after moving the old bundle. Preserve or restore it on that
-  path before making install interruptions part of this change.
-- **Pointer during debounce:** pointer movement does not arm a timer but leaves
-  an existing debounce armed. This can generate in the newly focused context;
-  decide the intended behavior explicitly before changing it.
-- **Render/commit coupling:** `commitsInFlight` is global, so a previous epoch's
-  outstanding insert can delay a new ghost. This is conservative behavior;
-  revisit only with focused rendering and insertion-order tests.
+| Finding | Resolution | Regression evidence |
+| --- | --- | --- |
+| Completion terminal-state drift | One terminal helper retires flow, settles interaction and updates published state for empty, privacy, error and cancellation paths | `ControllerInteractionTests.testTerminalOutcomesSettleEveryCompletionStateAndAllowRetry` |
+| Readiness disagreement | UI derives readiness from the exact engine routing validation, including registration, warmth and safe loopback endpoint | `LocalModelsStatusTests.testReadinessMatchesRoutingAndRejectsWarmButUnsafeSnapshots` |
+| Practice ABA request identity | `PracticeCompletionModel` owns UUID-scoped tasks; every suspension/final/error update checks ownership and cancellation; acceptance retires streaming | `SetupLifecycleTests` ABA, disappearance and terminal-event tests |
+| Login error visibility | Separate OS registration status and operation outcome; refresh preserves errors, successful retry clears them | `LaunchAtLoginModelTests` |
+| Permission observer lifetime | Pane start/stop pair owns timer and activation observer; teardown removes both | `SetupLifecycleTests.testPermissionMonitoringStopsAndRestartsWithoutDuplicateObservers` |
+| Pipeline diagnostics | Reset each run before context capture; failures/cancellation at context/prompt clear rendering and cannot retain a prior successful result | `PipelineTests.testCaptureAndPromptFailuresClearPriorResultAndDiagnostics` |
+| Not-shown write failure | Failure restores dirty state and increments content-free failure count; each persistence operation has at most two attempts; later flush/mutation can recover | `NotShownStoreTests` transient retry and persistent-failure/recovery tests |
+| About subprocess lifetime | Concurrent combined-channel draining, bounded output, monotonic deadline, TERM/KILL escalation; unavailable assessment has its own UI label | `NotarizationCheckerTests` real process overflow/timeout/launch-failure tests; `AboutStatusTests` |
+| Install interruption | Same-volume transaction owns staging/backup; only verified commit discards backup; failed/signal paths restore or preserve it, quarantining rejected replacement | `python3 scripts/test-install-transaction.py`: twelve isolated failure/signal/success scenarios |
+| Pointer during debounce | A context move cancels the pending auto request and returns idle; it cannot generate into a newly focused field | Pure interaction and controller pointer-debounce regressions |
+| Render/commit coupling | Pending insert counts belong to a render epoch; an old insert cannot delay a new preview, while actual insertion remains serialized and target-validated | Four full/stepped success/failure ownership tests require new preview before releasing old insert |
+
+A related model-monitor ordering issue was fixed during implementation: stop's
+cancellation is retained and awaited before a restart can begin a fresh read.
+This prevents delayed cancellation from retiring the replacement.
+
+User-facing choices: pointer movement cancels pending automatic completion;
+readiness means safe to route, not merely warm; an unavailable signing check is
+not presented as a notarization rejection. No permission is granted or reset,
+and the daemon remains the owner of model loading.
 
 ## Validation scope
 
@@ -146,7 +138,7 @@ No live editor text or model output was collected. Existing tests and these new
 regressions use synthetic data. Installed-app UX remains a separate verification
 step; this source audit does not establish live Accessibility or event-tap health.
 
-Verification on 2026-11-09:
+Initial audit verification on 2026-11-09:
 
 - `make build`: passed with warnings treated as errors.
 - `make test`: 854 tests, four skipped, zero failures; E2E 22/22.
@@ -160,5 +152,18 @@ Verification on 2026-11-09:
   checks passed. Live model lane was not requested. Gatekeeper rejected the
   local development bundle; the deterministic gate reports that separately
   and still passes. This is not a notarized release.
-- No installation or app launch was performed. Live editor behavior remains
-  unverified, in keeping with the rule against opening apps without a request.
+
+Follow-up verification on 2026-11-09:
+
+- `make test`: 872 tests, four explicit live-integration skips, zero failures;
+  E2E 22/22.
+- `make build`: passed with warnings treated as errors.
+- `./scripts/verify.sh`: all deterministic lanes passed, including debug/release,
+  rollback tests, unit tests, and bundle plist/rpath/codesign validation.
+- Strict design lint on touched Swift files: zero hits.
+- Independent source reviews found no blocking issues in the fixes.
+- Follow-up Thread Sanitizer build succeeded, but macOS refused to load the
+  sanitizer runtime: “Sanitizer load violates platform policy.” No sanitizer
+  tests ran. Signing/security policy was not weakened to bypass that restriction.
+- Live-model evaluation is outside this deterministic gate. Installation and
+  running-bundle identity are checked separately after committing this report.

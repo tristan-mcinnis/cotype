@@ -4,6 +4,28 @@ import Foundation
 
 final class NotarizationCheckerTests: XCTestCase {
 
+    func testRunnerDrainsOutputBeyondPipeCapacityOnBothChannels() {
+        let script = "i=0; while [ $i -lt 12000 ]; do printf abcdefghij; printf klmnopqrst >&2; i=$((i+1)); done"
+        let result = NotarizationChecker.runCommand("/bin/sh", ["-c", script], timeout: 10)
+        XCTAssertEqual(result.0, 0)
+        XCTAssertEqual(result.1.count, 240_000)
+    }
+
+    func testRunnerBoundsSignalResistantProcessAndDiscardsPartialAssessment() {
+        let start = Date()
+        let script = "trap '' TERM; printf 'source=Notarized Developer ID'; while :; do :; done"
+        let result = NotarizationChecker.runCommand("/bin/sh", ["-c", script], timeout: 0.1)
+        XCTAssertEqual(result.0, Int32.max)
+        XCTAssertEqual(result.1, "")
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2)
+    }
+
+    func testRunnerReportsLaunchFailureWithoutAssessmentOutput() {
+        let result = NotarizationChecker.runCommand("/missing/cotype-check", [], timeout: 0.1)
+        XCTAssertEqual(result.0, Int32.max)
+        XCTAssertTrue(result.1.isEmpty)
+    }
+
     private let bundleURL = URL(fileURLWithPath: "/tmp/fake/Cotype.app")
 
     /// spctl accepts with source=Notarized Developer ID, codesign succeeds with a
@@ -96,6 +118,7 @@ final class NotarizationCheckerTests: XCTestCase {
         XCTAssertFalse(status.accepted)
         XCTAssertFalse(status.notarized)
         XCTAssertFalse(status.isDeveloperID)
+        XCTAssertFalse(status.assessmentAvailable)
     }
 
     func testPassesVerboseArgsAndBundlePathToSpctl() {

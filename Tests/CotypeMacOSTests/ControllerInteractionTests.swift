@@ -94,6 +94,50 @@ final class ControllerInteractionTests: XCTestCase {
         await assertStaysIdle(controller)
     }
 
+    func testPointerMoveCancelsPendingAutomaticSuggestion() async {
+        let defaults = makeUserDefaults()
+        defaults.set(true, forKey: CompletionController.autoSuggestKey)
+        let engine = ScriptedEngine(["fresh"], wordDelayNanoseconds: 0)
+        let controller = CompletionController(
+            personalization: makePersonalizationStore(),
+            overrides: AppOverridesStore(fileURL: tempFileURL("overrides")),
+            websiteRules: makeWebsiteRulesStore(),
+            renderer: PresentRecordingRenderer(),
+            pipelineEngineOverride: engine,
+            frontmostAppProvider: { "com.example.editor" },
+            focusIdentityProvider: StubFocusIdentityProvider(Self.stableFocus),
+            userDefaults: defaults
+        )
+        controller.debounceInterval = 0.02
+        controller.noteTyped("a")
+        XCTAssertEqual(controller.interaction.state, .debouncing)
+        controller.noteContextMoved()
+        await assertStaysIdle(controller)
+        XCTAssertEqual(engine.callsStarted, 0)
+        controller.noteTyped("b")
+        let ready = await waitUntil { controller.phase == .awaitingAccept }
+        XCTAssertTrue(ready, "typing in the new context can request a fresh suggestion")
+        XCTAssertEqual(engine.callsStarted, 1)
+    }
+
+    func testTerminalOutcomesSettleEveryCompletionStateAndAllowRetry() async {
+        for outcome in TerminalThenSuccessEngine.Outcome.allCases {
+            let (controller, inserter) = makeController(engine: TerminalThenSuccessEngine(outcome: outcome))
+            XCTAssertTrue(controller.trigger())
+            let idle = await waitUntil { controller.phase == .idle }
+            XCTAssertTrue(idle, "\(outcome)")
+            XCTAssertEqual(controller.flow.phase, .idle, "\(outcome)")
+            XCTAssertEqual(controller.interaction.state, .idle, "\(outcome)")
+            XCTAssertTrue(controller.currentCandidate.isEmpty)
+            XCTAssertTrue(controller.interaction.ghost.isEmpty)
+            XCTAssertTrue(inserter.inserted.isEmpty)
+            XCTAssertTrue(controller.trigger())
+            let ready = await waitUntil { controller.phase == .awaitingAccept }
+            XCTAssertTrue(ready, "\(outcome) must allow a fresh request")
+            XCTAssertEqual(controller.currentCandidate, "fresh")
+        }
+    }
+
     // MARK: - Manual trigger drives the loop
 
     func testManualTriggerGeneratesAndShowsCandidate() async {
@@ -560,14 +604,18 @@ final class ControllerInteractionTests: XCTestCase {
         XCTAssertTrue(controller.trigger())
         let newReady = await waitUntil { controller.currentCandidate == "new candidate" }
         XCTAssertTrue(newReady)
-        inserter.finishFirst(fails: fails)
         let redrawn = await waitUntil { renderer.presented.contains("new candidate") }
-        XCTAssertTrue(redrawn)
+        XCTAssertTrue(redrawn, "an old epoch's insertion must not delay the new preview")
+        XCTAssertTrue(inserter.isSuspended)
+        XCTAssertTrue(inserter.inserted.isEmpty)
         XCTAssertEqual(controller.phase, .awaitingAccept)
         XCTAssertNil(controller.lastError, "an old insertion failure must not replace the new request's status")
         controller.accept()
+        XCTAssertTrue(inserter.inserted.isEmpty, "new acceptance remains serialized behind the old insertion")
+        inserter.finishFirst(fails: fails)
         let accepted = await waitUntil { inserter.inserted.contains("new candidate") }
         XCTAssertTrue(accepted, "the new request must retain its own focus identity")
+        XCTAssertNil(controller.lastError, "a retired failure cannot replace the new request's status")
     }
 
     // MARK: - Focus revalidation between queued segments
@@ -874,5 +922,38 @@ private final class SuspendedFirstInserter: CompletionInserter, @unchecked Senda
         }
         if fails { pending?.resume(throwing: CocoaError(.fileWriteUnknown)) }
         else { pending?.resume() }
+    }
+}
+
+/// The lock guards the response index; stream events use only synthetic text.
+private final class TerminalThenSuccessEngine: InferenceEngine, @unchecked Sendable {
+    enum Outcome: CaseIterable { case empty, cancelled, privacy, failure }
+    let name = "terminal-then-success"
+    private let lock = NSLock()
+    private var first = true
+    private let outcome: Outcome
+
+    init(outcome: Outcome) { self.outcome = outcome }
+
+    func stream(prompt: Prompt) -> AsyncThrowingStream<CompletionEvent, Error> {
+        let isFirst = lock.withLock {
+            let result = first
+            first = false
+            return result
+        }
+        return AsyncThrowingStream { continuation in
+            guard isFirst else {
+                continuation.yield(.token("fresh"))
+                continuation.yield(.end)
+                continuation.finish()
+                return
+            }
+            switch outcome {
+            case .empty: continuation.finish()
+            case .cancelled: continuation.finish(throwing: CancellationError())
+            case .privacy: continuation.finish(throwing: SensitiveContextError.gated(.sensitiveApp))
+            case .failure: continuation.finish(throwing: CocoaError(.fileReadUnknown))
+            }
+        }
     }
 }

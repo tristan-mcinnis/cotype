@@ -72,7 +72,55 @@ private struct EventsAfterEndEngine: InferenceEngine {
     }
 }
 
+private enum CaptureFailure: Error { case unavailable }
+
+private struct FailingContextProvider: ContextProvider {
+    var enabled: Bool
+    func provideContext(for request: CompletionRequest) async throws -> CompletionContext {
+        if enabled, request.prefix == "fail" { throw CaptureFailure.unavailable }
+        if enabled, request.prefix == "cancel" { throw CancellationError() }
+        return CompletionContext(prefix: request.prefix)
+    }
+}
+
+private struct FailingPromptBuilder: PromptBuilder {
+    var enabled: Bool
+    func buildPrompt(context: CompletionContext) async throws -> Prompt {
+        if enabled, context.prefix == "fail" { throw CaptureFailure.unavailable }
+        if enabled, context.prefix == "cancel" { throw CancellationError() }
+        return Prompt(user: context.prefix)
+    }
+}
+
 final class PipelineTests: XCTestCase {
+
+    func testCaptureAndPromptFailuresClearPriorResultAndDiagnostics() async throws {
+        for failsDuringContext in [true, false] {
+            for failure in ["fail", "cancel"] {
+                let renderer = RecordingRenderer()
+                let pipeline = CompletionPipeline(
+                    contextProvider: FailingContextProvider(enabled: failsDuringContext),
+                    promptBuilder: FailingPromptBuilder(enabled: !failsDuringContext),
+                    engine: SingleChunkEngine("hello"),
+                    renderer: renderer,
+                    inserter: RecordingInserter()
+                )
+                _ = try await pipeline.complete(CompletionRequest(prefix: "say "))
+                XCTAssertEqual(pipeline.lastOutcome, .suggestion("hello"))
+                XCTAssertEqual(pipeline.lastTimings.tokenCount, 1)
+                do {
+                    _ = try await pipeline.complete(CompletionRequest(prefix: failure))
+                    XCTFail("the failed run must throw")
+                } catch {
+                    XCTAssertEqual(error is CancellationError, failure == "cancel")
+                }
+                XCTAssertEqual(pipeline.lastOutcome, .noSuggestion)
+                XCTAssertEqual(pipeline.lastTimings, PipelineTimings())
+                XCTAssertNil(pipeline.lastAbstention)
+                XCTAssertEqual(renderer.clearCount, 1)
+            }
+        }
+    }
 
     func testEndFreezesRenderedAndAcceptedCandidate() async throws {
         let renderer = RecordingRenderer()

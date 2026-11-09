@@ -222,42 +222,54 @@ struct GeneralPane: View {
 @MainActor
 final class LaunchAtLoginModel: ObservableObject {
     @Published var isEnabled = false
-    @Published var statusText = ""
+    @Published private(set) var registrationStatusText = ""
+    @Published private(set) var operationError: String?
+    private let readStatus: () -> SMAppService.Status
+    private let updateRegistration: (Bool) throws -> Void
 
-    init() {
+    var statusText: String { operationError ?? registrationStatusText }
+
+    init(
+        readStatus: @escaping () -> SMAppService.Status = { SMAppService.mainApp.status },
+        updateRegistration: @escaping (Bool) throws -> Void = { enabled in
+            if enabled { try SMAppService.mainApp.register() }
+            else { try SMAppService.mainApp.unregister() }
+        }
+    ) {
+        self.readStatus = readStatus
+        self.updateRegistration = updateRegistration
         refresh()
     }
 
     func refresh() {
-        switch SMAppService.mainApp.status {
+        switch readStatus() {
         case .enabled:
             isEnabled = true
-            statusText = "Cotype will open when you log in."
+            registrationStatusText = "Cotype will open when you log in."
         case .requiresApproval:
             isEnabled = false
-            statusText = "Approval needed — enable Cotype under System Settings → General → Login Items."
+            registrationStatusText = "Approval needed — enable Cotype under System Settings → General → Login Items."
         case .notRegistered:
             isEnabled = false
-            statusText = ""
+            registrationStatusText = ""
         case .notFound:
             isEnabled = false
-            statusText = "App registration could not be found."
+            registrationStatusText = "App registration could not be found."
         @unknown default:
             isEnabled = false
-            statusText = ""
+            registrationStatusText = ""
         }
     }
 
     func setEnabled(_ enabled: Bool) {
         do {
-            if enabled {
-                try SMAppService.mainApp.register()
-            } else {
-                try SMAppService.mainApp.unregister()
-            }
+            try updateRegistration(enabled)
+            operationError = nil
         } catch {
-            statusText = "Could not update Launch at Login: \(error.localizedDescription)"
+            operationError = "Could not update Launch at Login: \(error.localizedDescription)"
         }
+        // OS registration truth and the operation outcome have separate lives.
+        // Refreshing the former must not erase a failed operation's explanation.
         refresh()
     }
 }

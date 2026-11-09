@@ -26,7 +26,7 @@ struct AboutPane: View {
                 SlateDivider()
                 StatRow(title: "Build mode", value: Self.buildMode)
                 SlateDivider()
-                StatRow(title: "Signing", value: notarization?.identity ?? Self.signingIdentity)
+                StatRow(title: "Signing", value: notarization.flatMap { $0.identity.isEmpty ? nil : $0.identity } ?? Self.signingIdentity)
                 SlateDivider()
                 StatRow(title: "Notarized", value: notarizedLabel)
                 SlateDivider()
@@ -55,6 +55,8 @@ struct AboutPane: View {
                     SlateProse("Built on Local Models and the Cotype pipeline. A local AI completion app for macOS.")
                     if notarization?.notarized == true {
                         SlateProse("This is a notarized Developer ID build with Hardened Runtime, safe for public distribution.")
+                    } else if notarization?.assessmentAvailable == false {
+                        SlateProse("Signing verification is unavailable. The assessment tool could not finish. Try opening this pane again.")
                     } else {
                         SlateProse("This build is Apple Development / ad-hoc signed and not notarized. See docs/RELEASE.md for the opt-in Developer ID + notarization path.")
                     }
@@ -70,8 +72,11 @@ struct AboutPane: View {
         }
     }
 
-    var notarizedLabel: String {
-        guard let status = notarization else { return "Checking…" }
+    var notarizedLabel: String { Self.notarizedLabel(for: notarization) }
+
+    static func notarizedLabel(for status: NotarizationStatus?) -> String {
+        guard let status else { return "Checking…" }
+        guard status.assessmentAvailable else { return "Verification unavailable" }
         if status.notarized { return "Yes — notarized Developer ID build" }
         if status.isDeveloperID { return "No — Developer ID release candidate (not notarized)" }
         return "No — not notarized"

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// The result of assessing a bundle's Gatekeeper / notarization status.
 public struct NotarizationStatus: Equatable, Sendable {
@@ -10,12 +11,15 @@ public struct NotarizationStatus: Equatable, Sendable {
     public let identity: String
     /// Whether `codesign -dv` itself ran successfully (exit 0).
     public let codesignAccepted: Bool
+    /// False when a required tool could not run or exceeded its time limit.
+    public let assessmentAvailable: Bool
 
-    public init(accepted: Bool, source: String, identity: String, codesignAccepted: Bool) {
+    public init(accepted: Bool, source: String, identity: String, codesignAccepted: Bool, assessmentAvailable: Bool = true) {
         self.accepted = accepted
         self.source = source
         self.identity = identity
         self.codesignAccepted = codesignAccepted
+        self.assessmentAvailable = assessmentAvailable
     }
 
     /// Normalized Gatekeeper source string: trimmed, whitespace-collapsed, lowercased.
@@ -29,7 +33,7 @@ public struct NotarizationStatus: Equatable, Sendable {
     /// authority is a Developer ID Application. A mere `spctl` exit-0, or an
     /// accepted Apple Development / ad-hoc build, is never treated as notarized.
     public var notarized: Bool {
-        accepted
+        assessmentAvailable && accepted
             && normalizedSource == "notarized developer id"
             && codesignAccepted
             && identity.contains("Developer ID Application")
@@ -77,27 +81,66 @@ public struct NotarizationChecker {
             accepted: accepted,
             source: source,
             identity: identity,
-            codesignAccepted: codesign.status == 0
+            codesignAccepted: codesign.status == 0,
+            assessmentAvailable: spctl.status != Int32.max && codesign.status != Int32.max
         )
     }
 
-    /// The default runner: executes the tool, discarding nothing and returning
-    /// the termination status plus combined stdout/stderr.
+    /// The default runner returns the termination status and up to 1 MiB of
+    /// combined stdout/stderr. Execution is bounded even for a stuck tool.
     public static func defaultRunner(_ executable: String, _ arguments: [String]) -> (Int32, String) {
+        runCommand(executable, arguments, timeout: 5)
+    }
+
+    /// Nonblocking reads drain both output channels while the process runs.
+    /// A wedged or signal-resistant tool is terminated, then killed; partial
+    /// output is discarded on timeout so it can never imply a valid assessment.
+    static func runCommand(_ executable: String, _ arguments: [String], timeout: TimeInterval) -> (Int32, String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
+        let descriptor = pipe.fileHandleForReading.fileDescriptor
+        guard fcntl(descriptor, F_SETFL, O_NONBLOCK) != -1 else { return (Int32.max, "") }
         do {
             try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return (process.terminationStatus, String(decoding: data, as: UTF8.self))
         } catch {
             return (Int32.max, "")
         }
+        pipe.fileHandleForWriting.closeFile()
+        defer { pipe.fileHandleForReading.closeFile() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(max(0, timeout)))
+        var output = Data()
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        func drain() {
+            // Bound each drain as well as retained output: an endless producer
+            // must not prevent the deadline from being checked.
+            for _ in 0..<128 {
+                let count = Darwin.read(descriptor, &buffer, buffer.count)
+                guard count > 0 else { return }
+                if output.count < 1_048_576 {
+                    output.append(contentsOf: buffer.prefix(min(count, 1_048_576 - output.count)))
+                }
+            }
+        }
+        while process.isRunning {
+            drain()
+            if ContinuousClock.now >= deadline {
+                process.terminate()
+                let grace = ContinuousClock.now.advanced(by: .milliseconds(200))
+                while process.isRunning, ContinuousClock.now < grace {
+                    drain()
+                    Thread.sleep(forTimeInterval: 0.005)
+                }
+                if process.isRunning { _ = Darwin.kill(process.processIdentifier, SIGKILL) }
+                return (Int32.max, "")
+            }
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        drain()
+        return (process.terminationStatus, String(decoding: output, as: UTF8.self))
     }
 
     /// Extract the first line that begins with `prefix` (e.g. "source=" / "Authority=").

@@ -138,6 +138,9 @@ done
 ci_log "Running publish scrub…"
 if [[ -f "$ROOT/scripts/scrub.sh" ]] && ! sh "$ROOT/scripts/scrub.sh"; then det_failed=1; fi
 
+ci_log "Running install rollback tests…"
+if ! python3 "$ROOT/scripts/test-install-transaction.py"; then det_failed=1; fi
+
 ci_log "Running deterministic tests…"
 if ! swift test; then det_failed=1; fi
 

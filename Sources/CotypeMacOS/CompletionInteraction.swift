@@ -266,9 +266,13 @@ public struct CompletionInteraction: Equatable, Sendable {
             return [.startDebounce]
 
         case .debouncing:
-            // A keyboard edit continues the pause window; a pointer change leaves
-            // the already-armed auto-trigger alone.
-            return rearmAutoTrigger ? [.startDebounce] : [.none]
+            // A pointer change retires the old typing context. Its pending pause
+            // must never generate in the field the user moved to.
+            guard rearmAutoTrigger else {
+                state = .idle
+                return [.cancelGeneration]
+            }
+            return [.startDebounce]
 
         case .generating:
             // The document/focus changed under a live generation: supersede it.

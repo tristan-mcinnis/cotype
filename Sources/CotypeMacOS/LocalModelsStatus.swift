@@ -41,11 +41,43 @@ public struct LocalModelsStatus: Equatable {
     public var isConfiguredModelRegistered: Bool { isModelRegistered(configuredModelAlias) }
     public var isConfiguredModelWarm: Bool { isModelWarm(configuredModelAlias) }
 
+    /// UI and generation use the same routing policy. Warmth alone does not
+    /// prove a registered model has a safe completion endpoint.
+    public var readiness: LocalModelsReadiness {
+        do {
+            return .ready(try LocalModelsCompletionEngine.completionBaseURL(status: self, modelAlias: configuredModelAlias))
+        } catch let error as LocalModelsCompletionError {
+            return .blocked(error)
+        } catch {
+            return .blocked(.unsafeOrMissingEndpoint(configuredModelAlias))
+        }
+    }
+
     public func isModelRegistered(_ alias: String) -> Bool { modelIDs.contains(alias) }
     public func isModelWarm(_ alias: String) -> Bool { warmModelIDs.contains(alias) }
 
     /// The live completion endpoint the daemon advertises for an alias, or nil.
     public func endpoint(for alias: String) -> String? { endpointsByID[alias] }
+}
+
+public enum LocalModelsReadiness: Equatable {
+    case ready(URL)
+    case blocked(LocalModelsCompletionError)
+
+    public var isReady: Bool {
+        if case .ready = self { return true }
+        return false
+    }
+
+    public func summary(modelAlias: String) -> String {
+        switch self {
+        case .ready: return "\(modelAlias) loaded and ready"
+        case .blocked(.daemonUnavailable): return "Local Models daemon is not reachable"
+        case .blocked(.modelNotRegistered(let alias)): return "\(alias) is not registered"
+        case .blocked(.modelNotWarm(let alias)): return "\(alias) is not loaded"
+        case .blocked(.unsafeOrMissingEndpoint(let alias)): return "\(alias) has no safe completion endpoint"
+        }
+    }
 }
 
 /// Loopback-only policy for every URL Cotype derives from Local Models.

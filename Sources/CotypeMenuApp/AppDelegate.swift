@@ -215,10 +215,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildMenu() {
         let phase = completionController.phase
         let localStatus = localModels.status
-        let isReady = localStatus.isConfiguredModelWarm
-        let statusTitle = isReady ? "\(localStatus.configuredModelAlias) warm"
-            : localStatus.isReachable ? "load \(localStatus.configuredModelAlias) in Local Models"
-            : "Local Models daemon offline"
+        let isReady = localStatus.readiness.isReady
+        let statusTitle = localStatus.readiness.summary(modelAlias: localStatus.configuredModelAlias)
 
         let phaseTitle: String
         switch phase {

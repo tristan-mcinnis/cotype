@@ -72,6 +72,33 @@ final class LocalModelsStatusTests: XCTestCase {
 
     // MARK: - Registry-routed completion endpoint policy
 
+    func testReadinessMatchesRoutingAndRejectsWarmButUnsafeSnapshots() {
+        let alias = configuredAlias
+        let snapshots: [LocalModelsStatus] = [
+            LocalModelsStatus(configuredModelAlias: alias, modelIDs: [alias], warmModelIDs: [alias],
+                              endpointsByID: [alias: "http://127.0.0.1:8079"], isReachable: false),
+            LocalModelsStatus(configuredModelAlias: alias, modelIDs: [], warmModelIDs: [alias],
+                              endpointsByID: [alias: "http://127.0.0.1:8079"], isReachable: true),
+            LocalModelsStatus(configuredModelAlias: alias, modelIDs: [alias], warmModelIDs: [], isReachable: true),
+            LocalModelsStatus(configuredModelAlias: alias, modelIDs: [alias], warmModelIDs: [alias], isReachable: true),
+            LocalModelsStatus(configuredModelAlias: alias, modelIDs: [alias], warmModelIDs: [alias],
+                              endpointsByID: [alias: "https://remote.example/v1"], isReachable: true),
+            Self.reachableStatus(alias: alias)
+        ]
+        for (index, status) in snapshots.enumerated() {
+            XCTAssertEqual(status.readiness.isReady, index == snapshots.count - 1)
+            do {
+                let endpoint = try LocalModelsCompletionEngine.completionBaseURL(status: status, modelAlias: alias)
+                XCTAssertEqual(status.readiness, .ready(endpoint))
+            } catch let error as LocalModelsCompletionError {
+                XCTAssertEqual(status.readiness, .blocked(error))
+                XCTAssertFalse(status.readiness.summary(modelAlias: alias).contains("ready"))
+            } catch {
+                XCTFail("Unexpected routing error: \(error)")
+            }
+        }
+    }
+
     func testCompletionBaseURLUsesAdvertisedEndpointAndAppendsV1() throws {
         let status = LocalModelsStatus(
             configuredModelAlias: configuredAlias,

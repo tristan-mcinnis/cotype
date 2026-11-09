@@ -28,6 +28,7 @@ final class LocalModelsMonitor: ObservableObject {
 
     private let refresher: LocalModelsStatusRefresher
     private var refreshTask: Task<Void, Never>?
+    private var cancellationTask: Task<Void, Never>?
     /// Bumped on stop so a cancelled read cannot clear a newer read's handle.
     private var refreshGeneration = 0
 
@@ -46,7 +47,12 @@ final class LocalModelsMonitor: ObservableObject {
         refreshGeneration += 1
         refreshTask?.cancel()
         refreshTask = nil
-        Task { await refresher.cancelInFlight() }
+        let previousCancellation = cancellationTask
+        let refresher = self.refresher
+        cancellationTask = Task {
+            await previousCancellation?.value
+            await refresher.cancelInFlight()
+        }
     }
 
     /// Refresh the status; a call while a read is in flight is a no-op.
@@ -55,7 +61,12 @@ final class LocalModelsMonitor: ObservableObject {
         refreshGeneration += 1
         let generation = refreshGeneration
         let refresher = self.refresher
+        let cancellation = cancellationTask
         refreshTask = Task { [weak self] in
+            // A rapid disappear/appear must retire the old read before the
+            // new one starts, or delayed stop work could cancel the new read.
+            await cancellation?.value
+            guard !Task.isCancelled else { return }
             let next = await refresher.refresh()
             guard let self, generation == self.refreshGeneration else { return }
             self.refreshTask = nil
@@ -75,8 +86,8 @@ struct LocalModelsStatusCard: View {
             SlateRow(title: statusText) {
                 HStack(spacing: House.Spacing.sm) {
                     StatusPill(
-                        text: status.isConfiguredModelWarm ? "Warm" : "Not ready",
-                        tint: status.isConfiguredModelWarm ? House.ColorToken.success : House.ColorToken.danger
+                        text: status.readiness.isReady ? "Warm" : "Not ready",
+                        tint: status.readiness.isReady ? House.ColorToken.success : House.ColorToken.danger
                     )
                     Button("Refresh") { monitor.refresh() }
                         .buttonStyle(HouseChipButtonStyle())
@@ -99,10 +110,7 @@ struct LocalModelsStatusCard: View {
     }
 
     private var statusText: String {
-        if !status.isReachable { return "Local Models daemon is not reachable" }
-        if !status.isConfiguredModelRegistered { return "\(status.configuredModelAlias) is not registered" }
-        if !status.isConfiguredModelWarm { return "\(status.configuredModelAlias) is not loaded" }
-        return "\(status.configuredModelAlias) is loaded and ready"
+        status.readiness.summary(modelAlias: status.configuredModelAlias)
     }
 }
 

@@ -422,6 +422,15 @@ final class CompletionInteractionAutoSuggestTests: XCTestCase {
         XCTAssertEqual(effects, [.none], "a mouse click is not typing and must not schedule auto-suggest")
     }
 
+    func testContextMovedCancelsArmedDebounce() {
+        var m = CompletionInteraction(autoSuggestEnabled: true)
+        XCTAssertEqual(m.handle(.typed("a")), [.startDebounce])
+        XCTAssertEqual(m.handle(.contextMoved), [.cancelGeneration])
+        XCTAssertEqual(m.state, .idle)
+        XCTAssertEqual(m.handle(.debounceElapsed), [.none], "an old pause cannot generate in a new field")
+        XCTAssertEqual(m.handle(.typed("b")), [.startDebounce], "new typing can arm a fresh pause")
+    }
+
     func testContextMovedWhileGeneratingCancelsToIdle() {
         var m = CompletionInteraction(autoSuggestEnabled: true)
         _ = m.handle(.manualTrigger)

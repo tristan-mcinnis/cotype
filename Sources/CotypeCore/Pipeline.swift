@@ -63,55 +63,60 @@ public final class CompletionPipeline {
     /// both apply the same canonical sanitizer.
     @discardableResult
     public func completeWithOutcome(_ request: CompletionRequest) async throws -> (text: String, rawText: String, outcome: CompletionOutcome, timings: PipelineTimings) {
+        lastOutcome = .noSuggestion
+        lastTimings = PipelineTimings()
         lastAbstention = nil
-        emit(.trigger, "request received for \(request.appIdentifier)")
-
-        let context = try await contextProvider.provideContext(for: request)
-        emit(.context, "context captured (\(context.prefix.count) prefix chars)", context)
-
-        // The caret is inside a word the suffix already finishes: abstain
-        // without spending a generation.
-        if CaretBoundary.isInsideWord(prefix: context.prefix, suffix: context.suffix) {
-            CotypeLog.loop.info("abstain: caret inside a word, \(context.suffix.utf16.count, privacy: .public) chars after it in \(context.appIdentifier, privacy: .public)")
-            lastAbstention = .abstainedInsideWord
-            renderer.clear()
-            lastOutcome = .noSuggestion
-            lastTimings = PipelineTimings()
-            emit(.inference, "abstained (caret inside a word)", "")
-            return ("", "", .noSuggestion, PipelineTimings())
-        }
-
-        // A word or two gives the model nothing to go on, so it invents a topic.
-        // Visible text can stand in for it: "Hi " above a mail from Jane is enough.
-        let hasWindowText = !(context.extra["windowContext"] ?? "").isEmpty
-        if abstainsOnTooLittleText,
-           !TextKind.hasEnoughToContinue(context.prefix),
-           !(hasWindowText && !context.prefix.isEmpty) {
-            CotypeLog.loop.debug("abstain: too little text before the caret")
-            lastAbstention = .abstainedTooLittleText
-            renderer.clear()
-            lastOutcome = .noSuggestion
-            lastTimings = PipelineTimings()
-            emit(.inference, "abstained (too little text)", "")
-            return ("", "", .noSuggestion, PipelineTimings())
-        }
-
-        let prompt = try await promptBuilder.buildPrompt(context: context)
-        emit(.prompt, "prompt built (system=\(prompt.system.count) user=\(prompt.user.count))", prompt)
-
-        // The canonical sanitizer runs at every boundary so the renderer only
-        // ever sees sanitized output. A control token / stop sequence split
-        // across engine tokens must never be presented, even transiently.
-        let sanitizer = OutputSanitizer()
-        let modelSawBoundary = prompt.continuation != nil
-
-        var buffer = ""
-        var timings = PipelineTimings()
-        var sawFirstToken = false
-        let requestStart = ContinuousClock.now
-        var generationStart = requestStart
-
         do {
+            try Task.checkCancellation()
+            emit(.trigger, "request received for \(request.appIdentifier)")
+
+            let context = try await contextProvider.provideContext(for: request)
+            try Task.checkCancellation()
+            emit(.context, "context captured (\(context.prefix.count) prefix chars)", context)
+
+            // The caret is inside a word the suffix already finishes: abstain
+            // without spending a generation.
+            if CaretBoundary.isInsideWord(prefix: context.prefix, suffix: context.suffix) {
+                CotypeLog.loop.info("abstain: caret inside a word, \(context.suffix.utf16.count, privacy: .public) chars after it in \(context.appIdentifier, privacy: .public)")
+                lastAbstention = .abstainedInsideWord
+                renderer.clear()
+                lastOutcome = .noSuggestion
+                lastTimings = PipelineTimings()
+                emit(.inference, "abstained (caret inside a word)", "")
+                return ("", "", .noSuggestion, PipelineTimings())
+            }
+
+            // A word or two gives the model nothing to go on, so it invents a topic.
+            // Visible text can stand in for it: "Hi " above a mail from Jane is enough.
+            let hasWindowText = !(context.extra["windowContext"] ?? "").isEmpty
+            if abstainsOnTooLittleText,
+               !TextKind.hasEnoughToContinue(context.prefix),
+               !(hasWindowText && !context.prefix.isEmpty) {
+                CotypeLog.loop.debug("abstain: too little text before the caret")
+                lastAbstention = .abstainedTooLittleText
+                renderer.clear()
+                lastOutcome = .noSuggestion
+                lastTimings = PipelineTimings()
+                emit(.inference, "abstained (too little text)", "")
+                return ("", "", .noSuggestion, PipelineTimings())
+            }
+
+            let prompt = try await promptBuilder.buildPrompt(context: context)
+            try Task.checkCancellation()
+            emit(.prompt, "prompt built (system=\(prompt.system.count) user=\(prompt.user.count))", prompt)
+
+            // The canonical sanitizer runs at every boundary so the renderer only
+            // ever sees sanitized output. A control token / stop sequence split
+            // across engine tokens must never be presented, even transiently.
+            let sanitizer = OutputSanitizer()
+            let modelSawBoundary = prompt.continuation != nil
+
+            var buffer = ""
+            var timings = PipelineTimings()
+            var sawFirstToken = false
+            let requestStart = ContinuousClock.now
+            var generationStart = requestStart
+
             generation: for try await event in engine.stream(prompt: prompt) {
                 try Task.checkCancellation()
                 switch event {
@@ -159,39 +164,38 @@ public final class CompletionPipeline {
             // Even if an engine ends normally on cancellation, do not finalize a
             // partial buffer as a finished candidate.
             try Task.checkCancellation()
+            timings.generationTime = Self.seconds(ContinuousClock.now - generationStart)
+
+            let sanitized = sanitizer.process(buffer, promptTail: context.prefix, suffix: context.suffix)
+            let candidate = Self.finalize(
+                CaretBoundary.reconcile(
+                    prefix: context.prefix, candidate: sanitized.text, isWord: wordChecker,
+                    modelSawBoundary: modelSawBoundary
+                ),
+                prefix: context.prefix,
+                maxWords: maxWords,
+                allowsEmoji: allowsEmoji
+            )
+            let isNoSuggestion = sanitized.isNoSuggestion || candidate.isEmpty
+            let outcome: CompletionOutcome = isNoSuggestion ? .noSuggestion : .suggestion(candidate)
+
+            // Render the final sanitized candidate (or clear ghost text when it
+            // produced nothing usable), so what is shown always matches what the
+            // evaluator scores and the inserter would insert.
+            if isNoSuggestion {
+                renderer.clear()
+            } else {
+                renderer.present(candidate, for: request)
+            }
+
+            lastOutcome = outcome
+            lastTimings = timings
+            emit(.inference, "inference finished (\(candidate.count) chars)", candidate)
+            return (candidate, buffer, outcome, timings)
         } catch {
             renderer.clear()
             throw error
         }
-
-        timings.generationTime = Self.seconds(ContinuousClock.now - generationStart)
-
-        let sanitized = sanitizer.process(buffer, promptTail: context.prefix, suffix: context.suffix)
-        let candidate = Self.finalize(
-            CaretBoundary.reconcile(
-                prefix: context.prefix, candidate: sanitized.text, isWord: wordChecker,
-                modelSawBoundary: modelSawBoundary
-            ),
-            prefix: context.prefix,
-            maxWords: maxWords,
-            allowsEmoji: allowsEmoji
-        )
-        let isNoSuggestion = sanitized.isNoSuggestion || candidate.isEmpty
-        let outcome: CompletionOutcome = isNoSuggestion ? .noSuggestion : .suggestion(candidate)
-
-        // Render the final sanitized candidate (or clear ghost text when it
-        // produced nothing usable), so what is shown always matches what the
-        // evaluator scores and the inserter would insert.
-        if isNoSuggestion {
-            renderer.clear()
-        } else {
-            renderer.present(candidate, for: request)
-        }
-
-        lastOutcome = outcome
-        lastTimings = timings
-        emit(.inference, "inference finished (\(candidate.count) chars)", candidate)
-        return (candidate, buffer, outcome, timings)
     }
 
     /// The last shaping steps shared by streamed and final candidates: drop the

@@ -247,19 +247,12 @@ struct SettingsView: View {
     private var footerStatusText: String {
         let completions = completionController.completionsEnabled ? "Completions on" : "Completions off"
         let status = localModels.status
-        let model: String
-        if status.isConfiguredModelWarm {
-            model = "\(status.configuredModelAlias) warm"
-        } else if status.isReachable {
-            model = "\(status.configuredModelAlias) not loaded"
-        } else {
-            model = "Local Models offline"
-        }
+        let model = status.readiness.summary(modelAlias: status.configuredModelAlias)
         return "\(completions) · \(model)"
     }
 
     private var footerTint: Color {
-        completionController.completionsEnabled && localModels.status.isConfiguredModelWarm
+        completionController.completionsEnabled && localModels.status.readiness.isReady
             ? House.ColorToken.success
             : House.ColorToken.danger
     }

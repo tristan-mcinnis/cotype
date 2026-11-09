@@ -3,6 +3,55 @@ import XCTest
 
 final class NotShownStoreTests: XCTestCase {
 
+    /// Mutable test-writer state is guarded by the lock.
+    private final class RecoveringWriter: PersonalizationFileWriter, @unchecked Sendable {
+        private let lock = NSLock()
+        private var failuresRemaining: Int
+        private var attempts = 0
+        var writes: Int { lock.withLock { attempts } }
+        init(failures: Int) { failuresRemaining = failures }
+        func write(_ data: Data, to url: URL) throws {
+            try lock.withLock {
+                attempts += 1
+                if failuresRemaining > 0 {
+                    failuresRemaining -= 1
+                    throw CocoaError(.fileWriteOutOfSpace)
+                }
+                try SystemFileWriter().write(data, to: url)
+            }
+        }
+    }
+
+    func testTransientWriteFailureRetriesWithoutLosingCounts() {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let writer = RecoveringWriter(failures: 1)
+        let store = makeStore(url: url, writer: writer)
+        store.record(.appDisabled, appIdentifier: "test.app")
+        store.flush()
+        XCTAssertEqual(writer.writes, 2)
+        XCTAssertEqual(store.failureCount, 1)
+        XCTAssertFalse(store.hasPendingWrites)
+        XCTAssertEqual(makeStore(url: url).snapshot.total["appDisabled"]?.count, 1)
+    }
+
+    func testPersistentFailureIsBoundedAndNextFlushRecoversLatestSnapshot() {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let writer = RecoveringWriter(failures: 2)
+        let store = makeStore(url: url, writer: writer)
+        store.record(.appDisabled, appIdentifier: "test.app")
+        store.flush()
+        XCTAssertEqual(writer.writes, 2)
+        XCTAssertEqual(store.failureCount, 2)
+        XCTAssertTrue(store.hasPendingWrites)
+        store.record(.appDisabled, appIdentifier: "test.app")
+        store.flush()
+        XCTAssertEqual(writer.writes, 3)
+        XCTAssertFalse(store.hasPendingWrites)
+        XCTAssertEqual(makeStore(url: url).snapshot.total["appDisabled"]?.count, 2)
+    }
+
     private final class RecordingWriter: PersonalizationFileWriter, @unchecked Sendable {
         private let lock = NSLock()
         private var payloads: [Data] = []

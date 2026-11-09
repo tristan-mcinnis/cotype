@@ -72,11 +72,8 @@ fi
 # bundles on the same volume, retaining a rollback copy until verification.
 # ---------------------------------------------------------------------------
 mkdir -p "$COTYPE_INSTALL_DIR"
-STAGED_APP="$COTYPE_INSTALL_DIR/.Cotype.installing.$$"
-BACKUP_APP="$COTYPE_INSTALL_DIR/.Cotype.backup.$$"
-cleanup_install() { rm -rf "$STAGED_APP" "$BACKUP_APP"; }
-trap cleanup_install EXIT
-rm -rf "$STAGED_APP" "$BACKUP_APP"
+source "$ROOT/scripts/install-transaction.sh"
+begin_install_transaction
 ditto "$COTYPE_DIST_APP" "$STAGED_APP"
 log "Verifying staged app…"
 verify_bundle "$STAGED_APP"
@@ -89,9 +86,9 @@ else
   log "No existing app at $COTYPE_APP."
 fi
 
+INSTALL_SWAP_STARTED=1
 if ! mv "$STAGED_APP" "$COTYPE_APP"; then
-  [[ -d "$BACKUP_APP" ]] && mv "$BACKUP_APP" "$COTYPE_APP"
-  die "Could not install replacement; the previous app was restored."
+  die "Could not install replacement; rolling back."
 fi
 
 # ---------------------------------------------------------------------------
@@ -99,12 +96,9 @@ fi
 # ---------------------------------------------------------------------------
 log "Verifying installed app…"
 if ! verify_bundle "$COTYPE_APP"; then
-  rm -rf "$COTYPE_APP"
-  [[ -d "$BACKUP_APP" ]] && mv "$BACKUP_APP" "$COTYPE_APP"
-  die "Installed bundle failed verification; the previous app was restored."
+  die "Installed bundle failed verification; rolling back."
 fi
-rm -rf "$BACKUP_APP"
-trap - EXIT
+commit_install_transaction
 log "Installed to $COTYPE_APP"
 
 log "Permission preflight (read-only; Cotype never grants these on install):"
